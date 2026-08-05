@@ -1,4 +1,4 @@
-# 🧬 RareDiseasePipeline v2
+# 🧬 RareDiseasePipeline
 
 ## Automated Genomic Drug Discovery Pipeline for Rare Disease Research
 
@@ -616,7 +616,7 @@ RareDiseasePipeline: Automated Genomic Drug Discovery Pipeline for Rare Disease 
   year         = {2026},
   version      = {1.0.0},
   publisher    = {GitHub},
-  url          = {wil_be_provided_after_upload},
+  url          = {[wil_be_provided_after_upload](https://github.com/nalgirkarh-prog/RareDiseasePipeline)},
   note         = {Accessed: 2026-08-02},
   license      = {MIT}
 }
