@@ -1,0 +1,5 @@
+disease: Rett syndrome
+organism: Homo sapiens
+simulation_time: 400
+replicates: 3
+forcefield: charmm36m

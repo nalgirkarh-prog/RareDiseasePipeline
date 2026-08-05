@@ -1,0 +1,35 @@
+{
+    "metadata": {
+        "generated": "2026-08-03 19:30:16.747159",
+        "pipeline": "RareDiseasePipeline v2"
+    },
+    "disease": {
+        "name": "Wilson Disease"
+    },
+    "gene": "ATP7B",
+    "gene_information": null,
+    "transcript": null,
+    "protein": null,
+    "structure": {
+        "data": null,
+        "file": "2ARF.pdb"
+    },
+    "regulation": null,
+    "binding_pockets": null,
+    "variants": {
+        "raw": null,
+        "analysis": null
+    },
+    "drug_discovery": {
+        "ligands": null,
+        "docking_results": [
+            {
+                "ligand": "CHEMBL1650632",
+                "score": -5.89
+            }
+        ],
+        "ranking": null,
+        "evaluation": null
+    },
+    "simulation": null
+}

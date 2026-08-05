@@ -1,0 +1,70 @@
+name: rdpipeline
+
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+
+dependencies:
+
+  # Python
+  - python=3.12
+
+  # Core Scientific Stack
+  - numpy
+  - scipy
+  - pandas
+  - matplotlib
+  - seaborn
+  - scikit-learn
+
+  # Bioinformatics
+  - biopython
+  - blast
+  - hmmer
+
+  # Chemistry
+  - rdkit
+  - openbabel
+  - ambertools
+
+  # Structure Processing
+  - pdbfixer
+
+  # Networking
+  - requests
+  - urllib3
+
+  # Utilities
+  - tqdm
+  - pyyaml
+  - rich
+  - click
+  - joblib
+  - psutil
+
+  # XML / HTML
+  - lxml
+  - beautifulsoup4
+
+  # Development
+  - pytest
+  - black
+  - flake8
+  - mypy
+
+  # Pip packages
+  - pip
+
+  - pip:
+
+      - pubchempy
+      - plip
+      - chembl-webresource-client
+      - bioservices
+      - requests-cache
+      - retry
+      - colorama
+      - tabulate
+      - py3Dmol
+      - vina
