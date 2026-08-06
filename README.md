@@ -427,7 +427,7 @@ Recommended:
 ## Clone Repository
 
 ```bash
-git clone https://github.com/yourusername/RareDiseasePipeline.git
+git clone https://github.com/nalgirkarh-prog/RareDiseasePipeline.git
 
 cd RareDiseasePipeline
 ```
