@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+*.conda/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Runtime/generated data
+cache/
+database/
+output/
+figures/
+
+# Logs
+*.log
+logs/
+
+# Molecular dynamics / docking generated files
+*.xtc
+*.trr
+*.tpr
+*.cpt
+*.edr
+*.gro
+*.top
+*.itp
+*.pdbqt
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+
+# R
+.Rhistory
+.RData
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/

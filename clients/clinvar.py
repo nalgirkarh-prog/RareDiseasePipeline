@@ -54,3 +54,33 @@ class ClinVarClient:
         )
         polite_pause()
         return text
+
+    def fetch_esummary(self, uid: str) -> dict:
+        """
+        Fetch a ClinVar esummary record as a parsed dict.
+
+        Returns the DocumentSummary sub-dict for the requested UID, or an
+        empty dict if the call fails or the UID is not found.
+
+        Key fields of interest (when present):
+          clinical_significance.description   — e.g. "Pathogenic"
+          variation_set[0].variation.hgvs_expressions — list of HGVS strings
+          protein_change                      — e.g. "Arg133Cys"
+        """
+        try:
+            data = get_json(
+                f"{self.BASE}/esummary.fcgi",
+                params={
+                    "db": "clinvar",
+                    "id": str(uid),
+                    "retmode": "json",
+                },
+            )
+            polite_pause()
+            result = data.get("result", {})
+            uids = result.get("uids", [])
+            if uids:
+                return result.get(str(uids[0]), {})
+            return result.get(str(uid), {})
+        except Exception:
+            return {}

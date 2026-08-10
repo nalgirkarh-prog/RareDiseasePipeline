@@ -68,3 +68,5 @@ dependencies:
       - tabulate
       - py3Dmol
       - vina
+  - fpocket
+  - autodock

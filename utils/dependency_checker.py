@@ -46,7 +46,8 @@ class DependencyChecker:
             "obabel": "Open Babel",
             "vina": "AutoDock Vina",
             "blastp": "BLAST+",
-            "hmmscan": "HMMER"
+            "hmmscan": "HMMER",
+            "gmx": "GROMACS (Optional for Stage 15 MD setup)"
         }
 
         self.required_dirs = [

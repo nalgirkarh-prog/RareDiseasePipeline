@@ -10,8 +10,8 @@ Supports:
 • Logging
 • Dependency checking
 • Stage timing
-• Checkpointing (future)
-• Resume support (future)
+• Checkpointing (output/docking_checkpoint.json, per-ligand)
+• Resume support (restarts skip already-completed ligands)
 • Exception handling
 """
 
@@ -341,7 +341,7 @@ class Pipeline:
         # Stage 12 : Molecular Docking
         # =====================================================
 
-        # Fix 3: Sort pockets by druggability score (descending) so the most
+        # Sort pockets by druggability score (descending) so the most
         # druggable pocket is always used, regardless of fpocket file ordering.
         # Fall back to the raw fpocket score when druggability is None.
         if pockets:
@@ -361,6 +361,8 @@ class Pipeline:
         else:
             best_pocket = None
 
+        # DockingStage.run() returns (top_candidates, all_results).
+        # Store the full tuple in context so stage13_ranking can see both.
         docking_results = self.execute_stage(
             12,
             "Molecular Docking",

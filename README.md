@@ -1,4 +1,4 @@
-# 🧬 RareDiseasePipeline
+# 🧬 RareDiseasePipeline v2
 
 ## Automated Genomic Drug Discovery Pipeline for Rare Disease Research
 
@@ -6,21 +6,9 @@
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Status](https://img.shields.io/badge/Status-Research%20Prototype-orange)
 
-RareDiseasePipeline is an automated computational biology workflow designed to accelerate early-stage rare disease drug discovery by integrating genomic analysis, transcript selection, protein characterization, structural biology, regulatory network analysis, binding pocket detection, and virtual screening.
+RareDiseasePipeline is an automated computational biology workflow that accelerates early-stage rare disease drug discovery by integrating genomic analysis, structural biology, regulatory network mapping, variant annotation, and virtual screening into a single reproducible pipeline.
 
-The pipeline converts a disease name into a structured computational report containing:
-
-- Disease-associated gene identification
-- Transcript and protein characterization
-- Protein structure acquisition
-- Regulatory interaction analysis
-- Binding pocket prediction
-- Variant annotation framework
-- Ligand retrieval and drug-likeness evaluation
-- Molecular docking-based prioritization
-- Simulation-ready ligand selection
-
-The objective of RareDiseasePipeline is not to replace experimental validation, but to provide researchers with a reproducible computational framework for hypothesis generation and candidate prioritization.
+Given a disease name, the pipeline produces a structured computational report containing ranked drug candidates, docking scores, ADMET properties, variant impact annotations, and simulation-ready system files.
 
 ---
 
@@ -32,43 +20,55 @@ The objective of RareDiseasePipeline is not to replace experimental validation, 
 Disease Input
       |
       ↓
-Disease Resolver
+Stage 00 — Disease Resolver
       |
       ↓
-Gene Identification
+Stage 01 — Gene Identification
       |
       ↓
-Transcript Selection
+Stage 02 — Transcript Selection
       |
       ↓
-Protein Mapping
+Stage 03 — Protein Mapping
       |
       ↓
-Structure Retrieval
+Stage 04 — UniProt Mapping
       |
       ↓
-Regulatory Analysis
+Stage 05 — Structure Search (PDB → AlphaFold fallback)
       |
       ↓
-Binding Pocket Detection
+Stage 06 — Structure Download + Domain Coverage Check
       |
       ↓
-Variant Analysis
+Stage 07 — Regulatory Network Analysis
       |
       ↓
-Ligand Screening (3 Sets of 10)
+Stage 08 — Binding Pocket Detection (fpocket)
+      |          ↳ center/bbox computed from alpha-sphere coordinates
+      ↓
+Stage 09 — Variant Retrieval (ClinVar esummary)
       |
       ↓
-Molecular Docking (First Filter: ≤ -7.0 kcal/mol)
+Stage 10 — Variant Impact Analysis (Ensembl VEP)
       |
       ↓
-Candidate Ranking
+Stage 11 — Ligand Screening (3 sets × 10, ChEMBL)
       |
       ↓
-Drug-likeness & H-Bond Evaluation
+Stage 12 — Molecular Docking (AutoDock Vina)
+      |          ↳ per-ligand 120s timeout + crash-recovery checkpoint
+      ↓
+Stage 13 — Candidate Ranking
+      |          ↳ full audit log of all attempts (success / failed / timeout)
+      ↓
+Stage 14 — Drug-likeness & H-Bond Evaluation
       |
       ↓
-Simulation Preparation (Threshold Check ≤ -7.0 kcal/mol)
+Stage 15 — Simulation Builder
+      |
+      ↓
+Stage 16 — Report Generation
 ```
 
 ---
@@ -77,337 +77,277 @@ Simulation Preparation (Threshold Check ≤ -7.0 kcal/mol)
 
 ## 1. Disease-to-Gene Resolution
 
-Given a rare disease name, the pipeline identifies associated molecular targets.
-
-Example:
+Given a rare disease name, the pipeline identifies the associated molecular target through an internal disease-target database.
 
 ```
-Input:
-Wilson Disease
-
-Output:
-Gene:
-ATP7B
+Input:  Rett Syndrome
+Output: MECP2
 ```
-
-Supported diseases are currently maintained through an internal disease-target database.
 
 ---
 
 ## 2. Gene Characterization
 
-The pipeline retrieves:
+Retrieves from Ensembl:
 
-- Gene symbol
-- Ensembl gene identifier
-- Chromosomal location
-- Strand information
-- Available transcripts
-- Protein-coding status
+- Gene symbol and Ensembl gene ID
+- Chromosomal location and strand
+- Available transcripts and protein-coding status
 
-Example:
+---
+
+## 3. Transcript Selection
+
+Selects the canonical protein-coding transcript to eliminate downstream ambiguity during structural and variant analysis.
 
 ```
-Disease:
-Wilson Disease
-
-Target:
-ATP7B
-
-Ensembl ID:
-ENSG00000123191
-
-Chromosome:
-13
+Canonical Transcript: MECP2-201
+Transcript ID:        ENST00000303391
 ```
 
 ---
 
-# 3. Transcript Selection
+## 4. Protein Characterization
 
-Multiple transcripts may exist for a gene.
-
-RareDiseasePipeline selects the canonical protein-coding transcript where available.
-
-Example:
-
-```
-Canonical Transcript:
-
-ATP7B-201
-
-Transcript ID:
-
-ENST00000242839
-```
-
-This reduces downstream ambiguity during structural analysis.
-
----
-
-# 4. Protein Characterization
-
-Protein information is retrieved including:
+Retrieves:
 
 - Ensembl protein identifier
 - UniProt accession
-- Amino acid sequence
-- Protein length
-
-Example:
+- Amino acid sequence and full-length residue count
 
 ```
-Protein:
-
-ATP7B
-
-UniProt:
-
-P35670
-
-Length:
-
-1465 amino acids
+Protein: MECP2
+UniProt: P51608
+Length:  498 amino acids
 ```
 
 ---
 
-# 5. Protein Structure Retrieval
+## 5. Protein Structure Retrieval + Domain Coverage & Remaking Fallback
 
-The pipeline automatically retrieves experimentally available protein structures from RCSB PDB.
+Searches RCSB PDB for experimentally determined structures. All structures are run through **PDBFixer** (adds missing atoms/residues, replaces non-standard residues).
 
-If experimental structures are unavailable, it will **automatically fall back to AlphaFold** to download a predicted structural model. All downloaded structures (both PDB and AlphaFold) are then automatically run through **PDBFixer** to add missing atoms/residues and replace non-standard residues.
+**Automatic Structure Remaking Fallback (new):** After downloading, the pipeline computes `domain_coverage = chain_residue_count / full_protein_length`. If the experimental PDB structure is broken, corrupted, or incomplete (covering < 50% of the full-length protein, e.g. an isolated domain crystal like MECP2's MBD), the pipeline **automatically remakes the full-length structure using AlphaFold**. This reduces structure-related pipeline failures to near zero.
 
-Example:
+**AlphaFold disorder check (new):** For AlphaFold models, the mean pLDDT of the TRD region (residues 200–310) is computed from B-factors. A mean pLDDT < 70 triggers an additional warning — preventing false confidence that an AlphaFold download resolves a disordered region.
 
 ```
-Structure:
-
-PDB ID:
-2ARF
-
-File:
-database/structures/2ARF.pdb
+Structure:       AF_P51608 (Remade full-length model)
+Domain Coverage: 100% (498/498 aa)
+🔄 Note: Experimental structure 1QK9 was incomplete (17% coverage).
+         Automatically remade full-length structure using AlphaFold.
 ```
 
 ---
 
-# 6. Regulatory Network Analysis
+## 6. Regulatory Network Analysis
 
-The pipeline identifies associated regulatory proteins and molecular partners.
-
-Example output:
+Identifies molecular partners and regulatory proteins via STRING DB interaction data. Interaction scoring prioritizes biologically relevant regulators.
 
 ```
-ATOX1
-CCS
-ATP7A
-COMMD1
-SLC31A1
-```
-
-Interaction scoring helps prioritize biologically relevant regulators.
-
----
-
-# 7. Binding Pocket Detection
-
-Potential ligand-binding regions are identified from the protein structure.
-
-Output includes:
-
-- Pocket ID
-- Pocket score
-- Volume
-- Druggability score
-
-Example:
-
-```
-Pocket:
-
-pocket9
-
-Volume:
-
-500.746 Å³
-
-Druggability:
-
-0.769
-```
-
-Higher druggability scores indicate potentially more favorable regions for ligand binding.
-
----
-
-# 8. Variant Analysis
-
-The framework supports disease-associated variant mapping.
-
-Current functionality:
-
-- Variant retrieval
-- Variant metadata storage
-- Structural mapping framework
-
-Future versions will expand:
-
-- Amino acid substitution mapping
-- Stability prediction
-- Pathogenicity scoring
-- Variant impact analysis
-
----
-
-# 9. Ligand Screening (3 Sets of 10)
-
-Candidate molecules are retrieved from ChEMBL and structured into **3 sets of 10 ligands** (up to 30 total).
-
-All candidate ligands are prepared without premature pre-filtering, allowing **molecular docking to act as the primary filter**.
-
-Each ligand is annotated with:
-
-- Molecular weight
-- LogP
-- Hydrogen bond donors (HBD)
-- Hydrogen bond acceptors (HBA)
-- Rotatable bonds
-
-Example:
-
-```
-Ligand:
-
-CHEMBL1650632
-
-MW:
-
-227.29
-
-LogP:
-
-3.67
+MECP2 regulators: NCOR1 (0.999), SIN3A (0.998), HDAC1 (0.977), HDAC2 (0.975)
 ```
 
 ---
 
-# 10. Molecular Docking (First Filter & Sequential 3-Set Protocol)
+## 7. Binding Pocket Detection
 
-Molecular docking is executed as the **first filter** using AutoDock Vina.
+Identifies candidate ligand-binding regions using **fpocket**. Output per pocket:
 
-### Revised 3-Set Screening Protocol:
+- Pocket ID, score, volume (Å³), druggability score
+- **Center coordinates** (x, y, z) — computed from alpha-sphere atom centroids
+- **Bounding box dimensions** (size_x, size_y, size_z) — used directly as the AutoDock Vina search box
 
-1. **Dock all three sets (10 ligands each)** sequentially, collecting any ligands with docking affinity ≤ -7.0 kcal/mol.
-2. After all sets are processed, **select the single best ligand** based on the most negative affinity (strongest binding). If multiple ligands share the same affinity, the one with the lowest reported energy is chosen.
-3. **Fallback Mechanism**: If no ligand meets the ≤ -7.0 kcal/mol threshold, the ligand with the overall lowest (most negative) docking score across all three sets is selected.
-4. Positive docking scores (>0) are considered non‑binding and are excluded from candidate selection.
-
-> **Note**: Positive docking scores ($>0$) represent non-binding/repulsive energies and are strictly eliminated from valid candidate selection.
-
-Docking output includes:
-
-- Binding affinity ($\text{kcal/mol}$)
-- Docking pose PDBQT
-- Detailed execution log
-
-Example:
+> **Previously:** `center_x/y/z` and `size_x/y/z` were always `null` despite fpocket running successfully. Now they are computed from each pocket's `_vert.pqr` file and populated into the `Pocket` model before docking.
 
 ```
-Ligand:
-
-CHEMBL1650632
-
-Affinity:
-
--8.45 kcal/mol
+Pocket:       pocket9
+Volume:       500.7 Å³
+Druggability: 0.769
+Center:       (x=12.4, y=−3.1, z=8.7)
+Box:          (18.0 × 14.3 × 16.5 Å)
 ```
 
 ---
 
-# 11. Drug-likeness & H-Bond Evaluation
+## 8. Variant Retrieval (ClinVar esummary)
 
-Candidates passing the docking filter are evaluated against medicinal chemistry rules:
+Fetches ClinVar records for the target gene. Each variant is now annotated with real data from the **ClinVar esummary JSON endpoint**:
 
-- **Lipinski Rule of Five** (MW $\le 500$, LogP $\le 5$, HBD $\le 5$, HBA $\le 10$)
-- **Veber Filter** (Rotatable bonds $\le 10$, TPSA $\le 140$)
-- **Ghose Filter** ($160 \le \text{MW} \le 480$, $-0.4 \le \text{LogP} \le 5.6$)
-- **Egan Filter** ($\text{LogP} \le 5.88$, TPSA $\le 131$)
-- **Muegge Filter** ($200 \le \text{MW} \le 600$, $-2 \le \text{LogP} \le 5$, TPSA $\le 150$, HBA $\le 10$, HBD $\le 5$, Rot $\le 15$)
-- **Hydrogen Bond (H-Bond) Factors**: Evaluates balanced H-bonding capacity ($0 \le \text{HBD} \le 5$, $0 \le \text{HBA} \le 10$, $1 \le \text{HBD+HBA} \le 12$) and awards $+10$ bonus points.
+- `hgvs_c` — NM_-prefixed coding HGVS (e.g., `NM_004992.4:c.397C>T`)
+- `hgvs_p` — Protein HGVS (e.g., `NP_004983.2:p.Arg133Cys`)
+- `clinical_significance` — e.g., `Pathogenic`, `Likely pathogenic`, `VUS`
+- `residue` — integer extracted from HGVS protein notation
 
-Overall **Drug Score** combines rule compliance (+15 to +20 points each), QED score ($\times 30$), H-bond compliance (+10 points), and negative binding energy bonus ($\min(-\text{affinity} \times 3, 30)$ only when $\text{affinity} < 0$).
+> **Previously:** Every variant was hardcoded to `clinical_significance="unknown"`, `hgvs_c=None`, `hgvs_p=None` — indistinguishable from a stage that never ran. Fields that genuinely have no ClinVar data now return `None` rather than the misleading sentinel.
 
 ---
 
-# 12. Simulation Preparation
+## 9. Variant Impact Analysis (Ensembl VEP)
 
-Top-ranked candidates are forwarded for molecular dynamics (MD) simulation system preparation.
+For each variant with a coding HGVS string, calls the **Ensembl VEP REST API** to retrieve the `most_severe_consequence` (e.g., `missense_variant`, `stop_gained`). Maps each variant to a functional domain (MBD, TRD, CTD, N-terminal) using residue coordinates.
 
-The pipeline applies the following logic for simulation eligibility:
+Output per variant:
 
-- **If any candidate has a docking score $\le -7.0$ kcal/mol**: that candidate is used and the full MD simulation system is built.
-- **If no candidate reaches $\le -7.0$ kcal/mol but all scores are negative** (fallback): the candidate with the highest negative docking score (most negative value, e.g. $-5.2$ over $-3.1$) is selected and the MD simulation system is still built.
-- **If the top candidate has a non-binding score ($\ge 0$ kcal/mol)**: simulation setup is skipped entirely with a clear log message.
+| Field | Source |
+|---|---|
+| `hgvs_c` / `hgvs_p` | ClinVar esummary |
+| `clinical_significance` | ClinVar esummary |
+| `consequence` | Ensembl VEP |
+| `region` | Residue → domain map |
+| `mapped` | Residue ≤ protein length |
 
-When a simulation-eligible candidate is identified, the pipeline automatically generates a complete execution script (`run_md.sh`) and topology parameters for a 4-step MD simulation via GROMACS and AmberTools.
+---
 
-**Fault-Tolerant Setup:** The pipeline automatically strips incompatible crystallographic heteroatoms that cause chain-type consistency failures. If a fragmented or biologically incompatible structure is detected, it gracefully skips simulation setup and generates the final research report without crashing.
+## 10. Ligand Screening
 
-Example:
+Retrieves candidate molecules from **ChEMBL** structured as **3 sequential sets of 10 ligands** (up to 30 total). Each ligand is annotated with:
 
+- Molecular weight, LogP, HBD, HBA, rotatable bonds, SMILES
+
+Docking acts as the primary filter; pre-screening does not eliminate candidates based on ADMET alone.
+
+---
+
+## 11. Molecular Docking — Reliability & Diagnostics
+
+Docking is executed with **AutoDock Vina** using a **pocket-specific search box** derived from fpocket alpha-sphere coordinates.
+
+### Screening Protocol
+
+1. Dock all three sets of 10 sequentially; collect any ligand scoring ≤ −7.0 kcal/mol.
+2. Select the single best ligand by most negative affinity (ties broken by reported energy).
+3. **Fallback:** if nothing clears −7.0 kcal/mol, select the least-bad negative score across all sets.
+4. Non-binding scores (> 0 kcal/mol) are excluded from candidate selection.
+
+### Reliability improvements (new)
+
+**Per-ligand 120-second hard timeout:** Each ligand is docked inside a `ThreadPoolExecutor` with a 120s wall-clock limit. A hung Vina process triggers `status="timeout"` and the loop continues — one stuck ligand can no longer silently kill the whole stage.
+
+**Crash-recovery checkpointing:** `output/docking_checkpoint.json` is written after every ligand attempt. A pipeline restart resumes from the last completed ligand rather than redoing all preceding ones.
+
+**Complete result audit:** Every attempt — whether `success`, `failed`, or `timeout` — is persisted with its status and, on failure, a real error message. Results are written to `output/docking_all_results.json`.
+
+**Parity-check log line:** At the end of docking, a summary is always printed:
 ```
-Protein:
-
-ENSP00000242839
-
-Ligand:
-
-CHEMBL1650632
-
-Affinity:
-
--8.45 kcal/mol
-
-Simulation Directory:
-
-simulations
+📊 Docking parity OK — screened=14 attempted=14 success=1 failed/timeout=13
 ```
+Or, if some ligands were not attempted at all:
+```
+⚠️ PARITY WARNING — screened=14 attempted=11 (delta=3)
+```
+This pins the ligand-attrition point to the docking stage vs. ranking/report generation — previously undiagnosable from the log alone.
+
+---
+
+## 12. Candidate Ranking
+
+Filters to `status="success"` entries before ranking. Logs how many failed/timeout entries were excluded. Saves:
+
+- `output/docking_ranking.csv` / `.json` — ranked successful candidates
+- `output/docking_all_results.json` — full audit log including failures
+
+---
+
+## 13. Drug-likeness & H-Bond Evaluation
+
+Candidates are scored against:
+
+- **Lipinski Rule of Five** (MW ≤ 500, LogP ≤ 5, HBD ≤ 5, HBA ≤ 10)
+- **Veber Filter** (Rotatable bonds ≤ 10, TPSA ≤ 140)
+- **Ghose Filter** (160 ≤ MW ≤ 480, −0.4 ≤ LogP ≤ 5.6)
+- **Egan Filter** (LogP ≤ 5.88, TPSA ≤ 131)
+- **Muegge Filter** (200 ≤ MW ≤ 600, −2 ≤ LogP ≤ 5, TPSA ≤ 150, HBA ≤ 10, HBD ≤ 5, Rot ≤ 15)
+- **H-Bond Compliance** (0 ≤ HBD ≤ 5, 0 ≤ HBA ≤ 10, 1 ≤ HBD+HBA ≤ 12) → +10 bonus
+
+**Drug Score** = rule compliance (+15–20 pts each) + QED score (×30) + H-bond bonus (+10) + binding energy bonus (min(−affinity × 3, 30), affinity < 0 only).
+
+---
+
+## 14. Simulation Preparation
+
+Top-ranked candidates are forwarded for molecular dynamics (MD) preparation via GROMACS and AmberTools.
+
+Eligibility logic:
+- Affinity ≤ −7.0 kcal/mol → full MD system built.
+- Any negative affinity (fallback) → MD system still built.
+- Non-binding score (≥ 0) → simulation skipped with a log message.
+
+Output: complete `run_md.sh` script and topology parameters for a 4-step MD simulation.
+
+**Fault-tolerant:** Incompatible crystallographic heteroatoms are automatically stripped. A fragmented structure gracefully skips simulation setup without crashing the report.
 
 ---
 
 # 📂 Project Structure
 
 ```
-RareDiseasePipeline/
-
+RareDiseasePipeline_clean/
 │
-├── main.py
+├── main.py                    # Entry point
+├── run_pipeline.py            # Pipeline runner
 ├── requirements.txt
-├── README.md
+├── environment.yml
 │
-├── stages/
-│   ├── stage00_resolve/
-│   ├── stage01_gene/
-│   ├── stage02_transcript/
-│   ├── stage03_protein/
-│   ├── stage04_uniprot/
-│   ├── stage05_structure/
-│   ├── stage06_download/
-│   ├── stage07_regulation/
-│   ├── stage08_pocket/
+├── pipeline/
+│   ├── pipeline.py            # Stage orchestrator
+│   ├── stage00_resolve.py     # Disease → gene symbol
+│   ├── stage01_gene.py        # Gene characterization
+│   ├── stage02_transcript.py  # Canonical transcript selection
+│   ├── stage03_protein.py     # Protein mapping
+│   ├── stage04_uniprot.py     # UniProt accession
+│   ├── stage05_structure.py   # PDB search
+│   ├── stage06_download.py    # Download + domain coverage check
+│   ├── stage07_regulation.py  # Regulatory network
+│   ├── stage08_pocket.py      # fpocket detection
+│   ├── stage09_variants.py    # ClinVar esummary retrieval
+│   ├── stage10_variant_analysis.py  # Ensembl VEP consequence
+│   ├── stage11_ligand.py      # ChEMBL ligand screening
+│   ├── stage12_docking.py     # Vina docking (timeout + checkpoint)
+│   ├── stage13_ranking.py     # Ranking + audit log
+│   ├── stage14_drug_evaluation.py
+│   ├── stage15_solution_builder.py
+│   └── stage16_report.py
+│
+├── modules/
+│   ├── pocket_analysis.py     # fpocket info parser (+ geometry wiring)
+│   ├── pocket_geometry.py     # Alpha-sphere centroid + bbox calculator
+│   ├── variant_analysis.py    # Residue/domain mapping
+│   ├── receptor_preparer.py
+│   ├── ligand_preparer.py
+│   ├── report_generator.py
+│   └── ...
+│
+├── clients/
+│   ├── clinvar.py             # ClinVar (esearch + esummary + efetch)
+│   ├── ensembl.py             # Ensembl REST (+ VEP endpoint)
+│   ├── vina.py                # AutoDock Vina subprocess wrapper
+│   ├── fpocket.py
+│   ├── rcsb.py
+│   ├── chembl.py
+│   └── ...
+│
+├── models/
+│   ├── structure.py           # + domain_coverage, alphafold_trd_plddt
+│   ├── pocket.py              # center_x/y/z, size_x/y/z
+│   ├── variant.py
+│   ├── protein.py             # length field
+│   └── ...
+│
+├── output/
+│   ├── docking/               # Per-ligand pose PDBQT + log
+│   ├── docking_checkpoint.json      # Crash-recovery checkpoint
+│   ├── docking_all_results.json     # Full audit (success/failed/timeout)
+│   ├── docking_ranking.csv / .json  # Ranked successful candidates
+│   └── reports/
 │
 ├── database/
 │   └── structures/
 │
-├── output/
-│   ├── docking/
-│   └── reports/
-│
-├── simulations/
-│   └── run_md.sh
-│
-└── reports/
+└── utils/
+    ├── logger.py
+    ├── http.py
+    └── dependency_checker.py
 ```
 
 ---
@@ -416,35 +356,25 @@ RareDiseasePipeline/
 
 ## Requirements
 
-Recommended:
-
 - Linux environment
 - Python 3.12
-- Conda environment
-
----
+- Conda
 
 ## Clone Repository
 
 ```bash
-git clone https://github.com/nalgirkarh-prog/RareDiseasePipeline.git
-
+git clone https://github.com/yourusername/RareDiseasePipeline.git
 cd RareDiseasePipeline
 ```
-
----
 
 ## Create Environment
 
 ```bash
-conda create -n raredrug python=3.10
-
-conda activate raredrug
+conda env create -f environment.yml   # creates the rdpipeline environment
+conda activate rdpipeline
 ```
 
----
-
-## Install Dependencies
+## Install Python Dependencies
 
 ```bash
 pip install -r requirements.txt
@@ -454,38 +384,17 @@ pip install -r requirements.txt
 
 # ▶️ Usage
 
-Run:
-
 ```bash
 python main.py
 ```
 
-Enter disease name:
-
-Example:
-
 ```
-Enter disease name:
-
-Wilson Disease
+Enter disease name: Rett Syndrome
 ```
 
-Pipeline execution:
+Example output:
 
 ```
-Resolving disease...
-Fetching gene...
-Fetching transcript...
-Fetching protein...
-Mapping UniProt...
-Finding structure...
-Downloading structure...
-Regulatory analysis...
-Detecting binding pockets...
-Retrieving ligands...
-Docking candidates...
-Generating report...
-
 ==============================================
 🏆 FINAL PIPELINE RESULTS 🏆
 ==============================================
@@ -493,108 +402,60 @@ Top Candidate : CHEMBL1650632
 Binding Affinity : -8.45 kcal/mol
 Overall Drug Score : 107.0
 ==============================================
+```
+
+### Checkpoint / Resume
+
+If docking crashes mid-run, simply re-run the same command. The pipeline detects `output/docking_checkpoint.json` and resumes from the last completed ligand automatically.
 
 ---
 
-# 📊 Example Output
+# 📊 Diagnostic Outputs
 
-Generated reports contain:
+| File | Contents |
+|---|---|
+| `output/docking_checkpoint.json` | Per-ligand state (used for crash recovery) |
+| `output/docking_all_results.json` | Every attempt: status, affinity, error message |
+| `output/docking_ranking.csv` | Ranked successful candidates |
+| `output/docking_ranking.json` | Same, machine-readable |
+| `output/reports/` | Full pipeline report |
 
-```
+The **parity-check log line** in Stage 12 and the **domain coverage warning** in Stage 06 are printed to stdout and captured in `pipeline.log`.
 
-Disease
- |
-Gene
- |
-Transcript
- |
-Protein
- |
-Structure
- |
-Binding pockets
- |
-Variants
- |
-Ligands
- |
-Docking scores
- |
-Simulation candidates
-
-```
 ---
 
 # 🧪 Validation and Scientific Interpretation
 
-RareDiseasePipeline is designed as a computational prioritization platform.
+RareDiseasePipeline is a computational prioritization platform. All predictions require independent validation through:
 
-All predictions require independent validation through:
-
-- Literature review
-- Experimental assays
-- Biochemical validation
-- Structural analysis
+- Literature review and target validation
+- Biochemical and biophysical assays
+- Cellular and in vivo studies
 - Molecular dynamics simulations
-- Cellular studies
+- Structural crystallography
 
-The pipeline should be considered a hypothesis-generation tool rather than a replacement for experimental research.
-
----
-
-# 🔬 Research Applications
-
-Potential applications include:
-
-- Rare genetic disorder target analysis
-- Computational drug repurposing
-- Candidate ligand prioritization
-- Structure-based drug discovery
-- Molecular simulation preparation
-- Bioinformatics education and training
-
----
-
-# 🛣️ Future Development
-
-Planned improvements:
-
-## AI-Assisted Ranking
-
-Integration of:
-
-- ClinVar interpretation
-- Variant consequence prediction
-- Stability prediction tools
-
-## Enhanced Molecular Simulation
-
-Automated:
-
-- System preparation
-- MD setup
-- Trajectory analysis
-- Binding free energy calculations
-
-## AI-Assisted Ranking
-
-Integration of:
-
-- Machine learning scoring
-- ADMET prediction
-- Multi-objective optimization
+The pipeline should be treated as a hypothesis-generation tool, not a replacement for experimental research.
 
 ---
 
 # ⚠️ Limitations
 
-Current limitations:
-
 - Disease-gene relationships depend on available databases
-- Docking scores do not directly represent biological activity
-- Structural availability may limit analysis
-- Variant interpretation requires additional annotation
-- Experimental validation remains essential
+- Docking scores correlate with, but do not directly predict, biological activity
+- Domain-only PDB structures limit pocket detection and docking to the crystallized region
+- Intrinsically disordered regions (e.g., MECP2 TRD) cannot be reliably modelled by AlphaFold
+- Experimental validation remains essential for all candidates
+
+---
+
+# 🔬 Research Applications
+
+- Rare genetic disorder target analysis
+- Computational drug repurposing and repositioning
+- Structure-based candidate prioritization
+- Variant impact assessment for rare disease mutations
+- Molecular simulation preparation
+- Bioinformatics education and training
 
 ---
 
@@ -603,26 +464,23 @@ Current limitations:
 If you use RareDiseasePipeline in research, please cite:
 
 ```
-
 Harsh Nalgirkar.
 RareDiseasePipeline: Automated Genomic Drug Discovery Pipeline for Rare Disease Research.
 2026.
 
-
-
 @software{nalgirkar2026rarediseasepipeline,
-  author       = {Harsh Nalgirkar},
-  title        = {RareDiseasePipeline: A Modular Research Software Platform for Automated Disease-to-Molecular-Dynamics System Preparation},
-  year         = {2026},
-  version      = {1.0.0},
-  publisher    = {GitHub},
-  url          = {https://github.com/nalgirkarh-prog/RareDiseasePipeline},
-  note         = {Accessed: 2026-08-02},
-  license      = {MIT}
+  author    = {Harsh Nalgirkar},
+  title     = {RareDiseasePipeline: A Modular Research Software Platform for
+               Automated Disease-to-Molecular-Dynamics System Preparation},
+  year      = {2026},
+  version   = {2.0.0},
+  publisher = {GitHub},
+  url       = {will_be_provided_after_upload},
+  note      = {Accessed: 2026-08-09},
+  license   = {MIT}
 }
-
-
 ```
+
 ---
 
 # 👨‍🔬 Author
@@ -634,21 +492,12 @@ LSHGCT's Gahlot Institute of Pharmacy
 University of Mumbai  
 Navi Mumbai, India
 
-Research interests:
-
-- Computational Drug Discovery
-- Molecular Dynamics Simulation
-- Bioinformatics
-- Rare Disease Therapeutics
+Research interests: Computational Drug Discovery · Molecular Dynamics Simulation · Bioinformatics · Rare Disease Therapeutics
 
 ---
 
 # 📄 License
 
-MIT License
-
-Copyright (c) 2026 Harsh Nalgirkar
+MIT License — Copyright (c) 2026 Harsh Nalgirkar
 
 Permission is hereby granted to use, modify, and distribute this software with appropriate attribution.
-
-```

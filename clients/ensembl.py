@@ -152,13 +152,36 @@ class EnsemblClient:
 
     def fetch_protein_sequence(self, protein_id):
 
-
         url = (
             f"{BASE_URL}/sequence/id/"
             f"{protein_id}"
         )
 
+        return self._get(url)
 
-        return self._get(
-            url
-        )
+    # ------------------------------------------------------------------
+
+    def vep_hgvs(self, hgvs_c: str):
+        """
+        Call the Ensembl VEP REST endpoint for a coding HGVS notation
+        (e.g. "NM_004992.4:c.397C>T") and return the most severe
+        consequence term, or None if the call fails or the annotation
+        is unavailable.
+
+        Endpoint: GET /vep/human/hgvs/<hgvs>
+        """
+        if not hgvs_c:
+            return None
+
+        import urllib.parse
+        encoded = urllib.parse.quote(hgvs_c, safe="")
+        url = f"{BASE_URL}/vep/human/hgvs/{encoded}"
+
+        try:
+            data = self._get(url, params={"content-type": "application/json"})
+            if not data or not isinstance(data, list):
+                return None
+            top = data[0]
+            return top.get("most_severe_consequence") or None
+        except Exception:
+            return None
