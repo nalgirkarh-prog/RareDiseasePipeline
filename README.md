@@ -475,7 +475,7 @@ RareDiseasePipeline: Automated Genomic Drug Discovery Pipeline for Rare Disease 
   year      = {2026},
   version   = {2.0.0},
   publisher = {GitHub},
-  url       = {will_be_provided_after_upload},
+  url       = {(https://github.com/nalgirkarh-prog/RareDiseasePipeline)},
   note      = {Accessed: 2026-08-09},
   license   = {MIT}
 }
