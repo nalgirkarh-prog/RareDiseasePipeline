@@ -36,7 +36,10 @@ class VariantAnalysisStage:
             consequence = variant.consequence  # may already be set upstream
             if consequence is None and variant.hgvs_c:
                 try:
-                    consequence = self.ensembl.vep_hgvs(variant.hgvs_c)
+                    consequence = self.ensembl.vep_hgvs(
+                        variant.hgvs_c,
+                        transcript_id=getattr(variant, "accession", None)
+                    )
                     if consequence:
                         print(f"  VEP consequence for {variant.variant_id}: {consequence}")
                 except Exception as e:

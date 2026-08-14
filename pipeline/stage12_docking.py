@@ -24,7 +24,8 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 from pathlib import Path
 from typing import List
 
-from modules.receptor_preparer import ReceptorPreparer
+from models.ligand import Ligand
+from modules.receptor_preparer import ReceptorPreparer, ReceptorPrepResult
 from modules.ligand_preparer import LigandPreparer
 from modules.pocket_geometry import PocketGeometry
 from clients.vina import VinaClient
@@ -35,12 +36,41 @@ _LIGAND_TIMEOUT = 120
 _CHECKPOINT_PATH = Path("output") / "docking_checkpoint.json"
 
 
+def _reconstruct_ligand(r: dict, name: str) -> Ligand:
+    return Ligand(
+        ligand_id=r.get("ligand_id", name),
+        name=name,
+        smiles=r.get("smiles"),
+        molecular_weight=r.get("mw"),
+        logp=r.get("logp"),
+        hbd=r.get("hbd"),
+        hba=r.get("hba"),
+        rotatable_bonds=r.get("rotatable_bonds"),
+        source=r.get("source", "ChEMBL"),
+    )
+
+
 def _load_checkpoint() -> dict:
     """Return {ligand_name: result_dict} for all previously completed attempts."""
     if _CHECKPOINT_PATH.exists():
         try:
             with open(_CHECKPOINT_PATH) as f:
-                return {r["ligand_name"]: r for r in json.load(f)}
+                data = json.load(f)
+                results = {}
+                for r in data:
+                    name = r.get("ligand_name")
+                    if not name:
+                        continue
+                    lig_val = r.get("ligand")
+                    if isinstance(lig_val, dict):
+                        try:
+                            r["ligand"] = Ligand(**lig_val)
+                        except Exception:
+                            r["ligand"] = _reconstruct_ligand(r, name)
+                    elif not isinstance(lig_val, Ligand):
+                        r["ligand"] = _reconstruct_ligand(r, name)
+                    results[name] = r
+                return results
         except Exception:
             pass
     return {}
@@ -49,8 +79,18 @@ def _load_checkpoint() -> dict:
 def _save_checkpoint(all_results: List[dict]) -> None:
     """Overwrite the checkpoint file with the current result list."""
     _CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    serializable_results = []
+    for r in all_results:
+        item = dict(r)
+        lig = item.get("ligand")
+        if isinstance(lig, Ligand):
+            if hasattr(lig, "model_dump"):
+                item["ligand"] = lig.model_dump()
+            elif hasattr(lig, "dict"):
+                item["ligand"] = lig.dict()
+        serializable_results.append(item)
     with open(_CHECKPOINT_PATH, "w") as f:
-        json.dump(all_results, f, indent=2, default=str)
+        json.dump(serializable_results, f, indent=2, default=str)
 
 
 class DockingStage:
@@ -63,8 +103,13 @@ class DockingStage:
 
     # ------------------------------------------------------------------
 
-    def run(self, pdb_file, pocket, ligands):
-        receptor = self.receptor.prepare(pdb_file.file_path)
+    def run(self, pdb_file, pocket, ligands, context: dict | None = None):
+        prep_result: ReceptorPrepResult = self.receptor.prepare(pdb_file.file_path)
+        receptor = prep_result.pdbqt_path
+
+        # Persist Open Babel warnings into the pipeline context for the report
+        if context is not None and prep_result.obabel_warnings:
+            context.setdefault("structure_preparation", {})["obabel_warnings"] = prep_result.obabel_warnings
 
         box = self.geometry.calculate(
             pocket.source_file.replace("_atm.pdb", "_vert.pqr")

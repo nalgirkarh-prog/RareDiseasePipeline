@@ -30,20 +30,21 @@ def _extract_residue(hgvs_p: str | None) -> int | None:
 
 def _parse_esummary(summary: dict) -> dict:
     """
-    Extract the fields we care about from a ClinVar esummary DocumentSummary.
-
-    Returns a dict with keys: clinical_significance, hgvs_c, hgvs_p.
-    Any field absent from the API response is returned as None (not "unknown").
+    Extract clinical_significance, hgvs_c, hgvs_p from ClinVar esummary.
+    Checks germline_classification, clinical_impact_classification, title, and variation_name.
     """
-    # --- clinical significance ---
     clin_sig = None
-    sig_block = summary.get("clinical_significance", {})
-    if isinstance(sig_block, dict):
-        desc = sig_block.get("description")
-        if desc:
-            clin_sig = desc.strip()
 
-    # --- HGVS expressions ---
+    # 1. Try germline_classification description first (modern ClinVar JSON schema)
+    g_class = summary.get("germline_classification", {})
+    if isinstance(g_class, dict) and g_class.get("description"):
+        clin_sig = g_class["description"].strip()
+    elif isinstance(summary.get("clinical_impact_classification"), dict) and summary["clinical_impact_classification"].get("description"):
+        clin_sig = summary["clinical_impact_classification"]["description"].strip()
+    elif isinstance(summary.get("clinical_significance"), dict) and summary["clinical_significance"].get("description"):
+        clin_sig = summary["clinical_significance"]["description"].strip()
+
+    # 2. Extract HGVS expressions from variation_set or title / variation_name
     hgvs_c = None
     hgvs_p = None
 
@@ -58,11 +59,25 @@ def _parse_esummary(summary: dict) -> dict:
             protein = expr.get("protein_expression", {})
             n_val = nucleotide.get("expression", "")
             p_val = protein.get("expression", "")
-            # Prefer the NM_ transcript HGVS for coding; avoid NC_ genomic
             if n_val and n_val.startswith("NM_") and hgvs_c is None:
                 hgvs_c = n_val
             if p_val and "p." in p_val and hgvs_p is None:
                 hgvs_p = p_val
+
+    # 3. Fallback: Parse from title or variation_name via regex
+    title = summary.get("title", "")
+    if variation_set and isinstance(variation_set, list) and not title:
+        title = variation_set[0].get("variation_name", "")
+
+    if title:
+        if not hgvs_c:
+            c_match = re.search(r"c\.[0-9a-zA-Z_>+-\.]+", title)
+            if c_match:
+                hgvs_c = c_match.group(0)
+        if not hgvs_p:
+            p_match = re.search(r"p\.[0-9a-zA-Z_>+-\.]+", title)
+            if p_match:
+                hgvs_p = p_match.group(0)
 
     return {
         "clinical_significance": clin_sig,
@@ -81,7 +96,8 @@ class VariantFetcher:
     def run(self, gene) -> list[Variant]:
         print("▶ Fetching variants")
         variants = self.fetch(gene)
-        print(f"✓ Retrieved {len(variants)} variants")
+        mapped_count = sum(1 for v in variants if v.mapped)
+        print(f"✓ Retrieved {len(variants)} ClinVar variants ({mapped_count} mapped with protein-level HGVS for structural analysis)")
         return variants
 
     # ------------------------------------------------------------------
@@ -102,11 +118,12 @@ class VariantFetcher:
 
         variants: list[Variant] = []
 
-        for uid in ids[:5]:
+        for uid in ids[:10]:
             summary = self.client.fetch_esummary(uid)
             parsed = _parse_esummary(summary)
 
             residue = _extract_residue(parsed["hgvs_p"])
+            is_mapped = bool(parsed["hgvs_p"] and residue is not None)
 
             variant = Variant(
                 variant_id=uid,
@@ -116,13 +133,13 @@ class VariantFetcher:
                 hgvs_p=parsed["hgvs_p"],
                 clinical_significance=parsed["clinical_significance"],
                 residue=residue,
+                mapped=is_mapped
             )
 
-            # Log what we actually got so the result is distinguishable
-            # from "never ran"
-            sig_str = variant.clinical_significance or "not in ClinVar"
+            sig_str = variant.clinical_significance or "Unclassified"
             hgvs_str = variant.hgvs_p or "no protein HGVS"
-            print(f"  UID {uid}: {sig_str} | {hgvs_str}")
+            map_str = f"Residue {variant.residue}" if is_mapped else "unmapped"
+            print(f"  UID {uid}: {sig_str} | {hgvs_str} ({map_str})")
 
             variants.append(variant)
 

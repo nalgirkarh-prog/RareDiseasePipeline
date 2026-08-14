@@ -73,7 +73,17 @@ Stage 16 — Report Generation
 
 ---
 
-# ✨ Features
+# ✨ Features & Human-in-the-Loop Interactivity
+
+## 0. Human-in-the-Loop Research Controls (New)
+
+RareDiseasePipeline is designed as an interactive research software platform that empowers researchers to guide, override, and customize pipeline decisions:
+
+- **Selective Pipeline Execution Depth:** At startup, researchers can choose how far the pipeline runs — from lightweight preliminary target mapping (Stage 04) or pocket detection (Stage 08) up to full-scale molecular docking and simulation setup (Stage 16).
+- **Protein Structure Override:** Before downloading or docking, the user can inspect the pipeline's selected structure and override it with a literature PDB ID (e.g. `2ARF`) or a custom local `.pdb` file path from their own experimental research.
+- **Literature Ligand Input & Substitution:** After automated ChEMBL screening, researchers can enter SMILES strings, PubChem CIDs, or ChEMBL IDs for candidates identified in literature. These user-supplied ligands are automatically calculated via RDKit and included in the docking screen.
+
+---
 
 ## 1. Disease-to-Gene Resolution
 

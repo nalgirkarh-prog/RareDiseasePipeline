@@ -1,21 +1,41 @@
 import os
 import subprocess
+from dataclasses import dataclass, field
+from typing import Optional
+
+
+# Warning keywords from Open Babel that are scientifically significant
+_OBABEL_WARNING_PATTERNS = (
+    "kekulize",
+    "aromaticity",
+    "cannot kekulize",
+    "failed to kekulize",
+    "invalid smiles",
+    "unusual valence",
+)
+
+
+@dataclass
+class ReceptorPrepResult:
+    """Result returned by ReceptorPreparer.prepare."""
+    pdbqt_path: str
+    obabel_warnings: list[str] = field(default_factory=list)
 
 
 class ReceptorPreparer:
 
-    def prepare(self, pdb_file):
+    def prepare(self, pdb_file) -> ReceptorPrepResult:
 
         pdbqt = pdb_file.replace(".pdb", ".pdbqt")
 
         if os.path.exists(pdbqt):
-            return pdbqt
+            return ReceptorPrepResult(pdbqt_path=pdbqt)
 
         print("Preparing receptor...")
 
         single_model_pdb = self._extract_first_model(pdb_file)
 
-        subprocess.run(
+        result = subprocess.run(
 
             [
                 "obabel",
@@ -25,11 +45,25 @@ class ReceptorPreparer:
                 "-xr"
             ],
 
-            check=True
+            check=True,
+            capture_output=True,
+            text=True,
 
         )
 
-        return pdbqt
+        # Collect scientifically significant warnings from stderr
+        warnings: list[str] = []
+        for line in (result.stderr or "").splitlines():
+            line_lower = line.lower()
+            if any(kw in line_lower for kw in _OBABEL_WARNING_PATTERNS):
+                warnings.append(line.strip())
+
+        if warnings:
+            print(f"  ⚠ Open Babel warnings ({len(warnings)}):")
+            for w in warnings:
+                print(f"    {w}")
+
+        return ReceptorPrepResult(pdbqt_path=pdbqt, obabel_warnings=warnings)
 
     def _extract_first_model(self, pdb_file):
         """

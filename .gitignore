@@ -39,6 +39,30 @@ logs/
 *.itp
 *.pdbqt
 
+# Antechamber / AMBER scratch files (generated at runtime in CWD)
+ANTECHAMBER_*.AC
+ANTECHAMBER_*.AC0
+ATOMTYPE.INF
+sqm.in
+sqm.out
+sqm.pdb
+NEWPDB.PDB
+PREP.INF
+leap.log
+
+# Simulation outputs (large binary/trajectory data)
+simulations/
+
+# PDB / mmCIF structure files downloaded at runtime
+*.pdb
+*.cif
+*.mmcif
+
+# Raw pipeline error captures / scratch saves
+error.txt.save
+error.txt
+
+
 # Temporary files
 *.tmp
 *.temp

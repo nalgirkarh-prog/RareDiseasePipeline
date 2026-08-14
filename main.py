@@ -31,7 +31,11 @@ import os
 import sys
 
 
-# Ensure project root is available
+# Ensure project root and python bin directory are in PATH and sys.path
+bin_dir = os.path.dirname(sys.executable)
+if bin_dir and bin_dir not in os.environ.get("PATH", ""):
+    os.environ["PATH"] = f"{bin_dir}:{os.environ.get('PATH', '')}"
+
 sys.path.append(
     os.path.dirname(
         os.path.abspath(__file__)
@@ -176,7 +180,8 @@ def main():
     try:
 
         result = pipeline.run(
-            project
+            project,
+            interactive=True
         )
 
 

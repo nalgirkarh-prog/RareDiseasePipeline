@@ -22,6 +22,13 @@ class Structure(BaseModel):
     # "1QK9 covers only 17% of MECP2 (498 aa). TRD region not present."
     domain_coverage_warning: Optional[str] = None
 
-    # Mean pLDDT of the TRD region (residues 200–310) in an AlphaFold model.
-    # Expected to be low (<70) for intrinsically disordered regions like MECP2 TRD.
+    # Mean pLDDT score for AlphaFold predictions in TRD region (or overall)
     alphafold_trd_plddt: Optional[float] = None
+
+    # Explicit structure provenance tracking:
+    selected_source: Optional[str] = "experimental"  # "experimental", "alphafold_fallback", or "user_override"
+    original_pdb_id: Optional[str] = None
+    original_domain_coverage: Optional[float] = None
+    final_structure_file: Optional[str] = None
+    final_structure_type: Optional[str] = "PDB"  # "PDB", "AlphaFold", or "User_PDB"
+    fallback_reason: Optional[str] = None

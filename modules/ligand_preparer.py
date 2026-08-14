@@ -10,9 +10,13 @@ class LigandPreparer:
 
         smi = f"output/ligands/{ligand.ligand_id}.smi"
 
+        smiles = ligand.smiles
+        if "." in smiles:
+            smiles = max(smiles.split("."), key=len)
+
         with open(smi, "w") as f:
 
-            f.write(ligand.smiles)
+            f.write(smiles)
 
         pdbqt = f"output/ligands/{ligand.ligand_id}.pdbqt"
 

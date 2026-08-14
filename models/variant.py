@@ -19,3 +19,5 @@ class Variant(BaseModel):
     consequence: Optional[str] = None
 
     residue: Optional[int] = None
+
+    mapped: bool = False

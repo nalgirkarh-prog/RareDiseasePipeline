@@ -2,6 +2,7 @@ import csv
 import json
 from pathlib import Path
 
+from models.ligand import Ligand
 from modules.medicinal_filters import MedicinalFilters
 
 
@@ -20,7 +21,22 @@ class DrugEvaluator:
 
         for candidate in ranked_candidates:
 
-            ligand = candidate["ligand"]
+            ligand = candidate.get("ligand")
+
+            if not isinstance(ligand, Ligand):
+                smiles = getattr(ligand, "smiles", None) or candidate.get("smiles")
+                name = getattr(ligand, "name", None) or candidate.get("ligand_name", "unknown")
+                ligand = Ligand(
+                    ligand_id=candidate.get("ligand_id", name),
+                    name=name,
+                    smiles=smiles,
+                    molecular_weight=candidate.get("mw"),
+                    logp=candidate.get("logp"),
+                    hbd=candidate.get("hbd"),
+                    hba=candidate.get("hba"),
+                    rotatable_bonds=candidate.get("rotatable_bonds")
+                )
+                candidate["ligand"] = ligand
 
             report = self.filters.evaluate(
                 ligand.smiles
@@ -161,12 +177,13 @@ class DrugEvaluator:
 
                 r = c["evaluation"]
 
+                lig_name = getattr(c["ligand"], "name", None) or c.get("ligand_name", str(c["ligand"]))
 
                 writer.writerow([
 
                     c["drug_rank"],
 
-                    c["ligand"].name,
+                    lig_name,
 
                     c["affinity"],
 
@@ -201,12 +218,13 @@ class DrugEvaluator:
 
             r = c["evaluation"]
 
+            lig_name = getattr(c["ligand"], "name", None) or c.get("ligand_name", str(c["ligand"]))
 
             output.append({
 
                 "rank": c["drug_rank"],
 
-                "ligand": c["ligand"].name,
+                "ligand": lig_name,
 
                 "affinity": c["affinity"],
 

@@ -1,6 +1,7 @@
 import shutil
 from pathlib import Path
 
+from models.ligand import Ligand
 from clients.gromacs import GromacsClient
 from clients.ambertools import AmberToolsClient
 
@@ -52,7 +53,22 @@ class SolutionBuilder:
 
         protein = context["protein"]
         pdb_file = context["pdb_file"]
-        ligand = candidate["ligand"]
+        ligand = candidate.get("ligand")
+
+        if not isinstance(ligand, Ligand):
+            smiles = getattr(ligand, "smiles", None) or candidate.get("smiles")
+            name = getattr(ligand, "name", None) or candidate.get("ligand_name", "unknown")
+            ligand = Ligand(
+                ligand_id=candidate.get("ligand_id", name),
+                name=name,
+                smiles=smiles,
+                molecular_weight=candidate.get("mw"),
+                logp=candidate.get("logp"),
+                hbd=candidate.get("hbd"),
+                hba=candidate.get("hba"),
+                rotatable_bonds=candidate.get("rotatable_bonds")
+            )
+            candidate["ligand"] = ligand
 
         protein_name = getattr(protein, "name", protein.protein_id)
         uniprot_id = getattr(protein, "uniprot", None)

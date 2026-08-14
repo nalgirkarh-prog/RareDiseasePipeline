@@ -231,10 +231,11 @@ quit
             lines = f.readlines()
 
         atomtypes_lines = []
-        ligand_lines = []
+        raw_ligand_lines = []
 
         in_atomtypes = False
         in_moleculetype = False
+        old_molname = None
 
         for line in lines:
 
@@ -251,7 +252,7 @@ quit
 
                 in_atomtypes = False
                 in_moleculetype = True
-                ligand_lines.append(line)
+                raw_ligand_lines.append(line)
                 continue
 
             if stripped.startswith("[ system ]"):
@@ -266,9 +267,17 @@ quit
 
             elif in_moleculetype:
 
-                ligand_lines.append(
-                    line.replace("UNL", "LIG")
-                )
+                if old_molname is None and stripped and not stripped.startswith(";"):
+                    old_molname = stripped.split()[0]
+                raw_ligand_lines.append(line)
+
+        ligand_lines = []
+        for line in raw_ligand_lines:
+            mod_line = line
+            if old_molname:
+                mod_line = mod_line.replace(old_molname, "LIG")
+            mod_line = mod_line.replace("UNL", "LIG").replace("<1>", "LIG")
+            ligand_lines.append(mod_line)
 
         atomtypes_itp = outdir / "ligand_atomtypes.itp"
 
@@ -294,6 +303,7 @@ quit
             protein_gro,
             outdir / "ligand.gro",
             complex_gro,
+            old_molname=old_molname,
         )
 
         # ----------------------------------------------------------
@@ -495,7 +505,7 @@ quit
     # =============================================================
 
     @staticmethod
-    def _merge_gro_files(protein_gro, ligand_gro, output_gro):
+    def _merge_gro_files(protein_gro, ligand_gro, output_gro, old_molname=None):
         """
         Merge protein and ligand GRO files.
         Protein atoms remain first.
@@ -524,9 +534,11 @@ quit
 
         for line in ligand_coordinates:
 
-            renamed_ligand.append(
-                line.replace("UNL", "LIG")
-            )
+            line_mod = line
+            if old_molname and old_molname in line_mod:
+                line_mod = line_mod.replace(old_molname, "LIG")
+            line_mod = line_mod.replace("UNL", "LIG").replace("<1>", "LIG")
+            renamed_ligand.append(line_mod)
 
         total_atoms = protein_atoms + ligand_atoms
 

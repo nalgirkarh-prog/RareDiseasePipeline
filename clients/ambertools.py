@@ -26,7 +26,9 @@ class AmberToolsClient:
                 "-omol2",
                 "-O",
                 str(mol2_file),
-                "--gen3d"
+                "--gen3d",
+                "--title",
+                "LIG"
             ],
             check=True
         )
