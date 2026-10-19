@@ -99,25 +99,56 @@ def create_environment():
 # --------------------------------------------------
 
 
+def get_env_python():
+    candidates = [
+        os.path.expanduser(f"~/miniconda3/envs/{ENV_NAME}/bin/python"),
+        os.path.expanduser(f"~/anaconda3/envs/{ENV_NAME}/bin/python"),
+        os.path.expanduser(f"~/.conda/envs/{ENV_NAME}/bin/python"),
+    ]
+    for c in candidates:
+        if os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+
+    conda_bin = shutil.which("conda") or os.path.expanduser("~/miniconda3/bin/conda")
+    if os.path.isfile(conda_bin):
+        try:
+            res = subprocess.run([conda_bin, "info", "--base"], capture_output=True, text=True, check=True)
+            base = res.stdout.strip()
+            cand = os.path.join(base, "envs", ENV_NAME, "bin", "python")
+            if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                return cand
+        except Exception:
+            pass
+    return None
+
+
 def verify_packages():
 
     print("\nVerifying packages...\n")
 
     failures = []
+    env_python = get_env_python()
 
     for module, package in REQUIRED_IMPORTS.items():
 
-        command = [
-            "conda",
-            "run",
-            "-n",
-            ENV_NAME,
-            "python",
-            "-c",
-            f"import {module}"
-        ]
+        if env_python:
+            command = [
+                env_python,
+                "-c",
+                f"import {module}"
+            ]
+        else:
+            command = [
+                "conda",
+                "run",
+                "-n",
+                ENV_NAME,
+                "python",
+                "-c",
+                f"import {module}"
+            ]
 
-        result = subprocess.run(command)
+        result = subprocess.run(command, capture_output=True, text=True)
 
         if result.returncode == 0:
             print(f"✓ {package}")

@@ -53,6 +53,11 @@ dependencies:
   - flake8
   - mypy
 
+  - pydantic
+  - fpocket
+  - autodock
+  - autodock-vina
+
   # Pip packages
   - pip
 
@@ -68,5 +73,4 @@ dependencies:
       - tabulate
       - py3Dmol
       - vina
-  - fpocket
-  - autodock
+

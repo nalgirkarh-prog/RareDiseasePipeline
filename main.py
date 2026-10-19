@@ -87,10 +87,21 @@ def main():
 
     banner()
 
-    disease_name = input(
-        "Enter disease name: "
-    )
+    if len(sys.argv) > 1 and sys.argv[1].strip():
+        disease_name = sys.argv[1].strip()
+        print(f"Disease specified via command line: {disease_name}")
+    else:
+        try:
+            disease_name = input(
+                "Enter disease name: "
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nPipeline aborted by user.")
+            sys.exit(0)
 
+    if not disease_name:
+        print("\n❌ Error: No disease name provided. Exiting.")
+        sys.exit(1)
 
     print(
         f"\n🧬 Initializing project for: {disease_name}\n"
