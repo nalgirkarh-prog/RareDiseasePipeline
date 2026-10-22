@@ -29,7 +29,47 @@ Binding Pocket Detection
 
 import os
 import sys
+import shutil
+import subprocess
 
+
+# Auto-detect and switch to 'rdpipeline' Conda environment if running under system/mise Python
+def _ensure_rdpipeline_env():
+    try:
+        import pydantic
+        import rdkit
+        return
+    except ImportError:
+        pass
+
+    candidates = []
+    conda_prefix = os.environ.get("CONDA_PREFIX")
+    if conda_prefix and os.path.basename(conda_prefix) == "rdpipeline":
+        candidates.append(os.path.join(conda_prefix, "bin", "python"))
+
+    candidates.extend([
+        os.path.expanduser("~/miniconda3/envs/rdpipeline/bin/python"),
+        os.path.expanduser("~/anaconda3/envs/rdpipeline/bin/python"),
+        os.path.expanduser("~/.conda/envs/rdpipeline/bin/python"),
+    ])
+
+    conda_bin = shutil.which("conda") or os.path.expanduser("~/miniconda3/bin/conda")
+    if os.path.isfile(conda_bin):
+        try:
+            res = subprocess.run([conda_bin, "info", "--base"], capture_output=True, text=True, check=True)
+            base = res.stdout.strip()
+            candidates.append(os.path.join(base, "envs", "rdpipeline", "bin", "python"))
+        except Exception:
+            pass
+
+    for py in candidates:
+        if os.path.isfile(py) and os.access(py, os.X_OK) and py != sys.executable:
+            bin_dir = os.path.dirname(py)
+            os.environ["PATH"] = f"{bin_dir}:{os.environ.get('PATH', '')}"
+            os.execv(py, [py] + sys.argv)
+
+
+_ensure_rdpipeline_env()
 
 # Ensure project root and python bin directory are in PATH and sys.path
 bin_dir = os.path.dirname(sys.executable)
