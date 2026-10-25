@@ -64,6 +64,8 @@ class ProteinFetcher:
 
             protein_id=protein_id,
 
+            transcript_id=getattr(transcript, "transcript_id", None),
+
             sequence=sequence,
 
             length=len(sequence) if sequence else None

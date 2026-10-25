@@ -91,33 +91,35 @@ class VariantAnalyzer:
 
     def predict_region(
         self,
-        residue
+        residue,
+        gene_symbol: str = "MECP2"
     ):
-
         """
-        MECP2 functional domains
+        Functional domain mapping for target proteins (DMD, MECP2, etc.).
         """
-
         if residue is None:
             return "unknown"
 
+        gene = (gene_symbol or "").upper().strip()
 
-        # Methyl CpG Binding Domain
+        # Dystrophin (DMD) functional domain boundaries
+        if gene == "DMD":
+            if 1 <= residue <= 240:
+                return "Actin-Binding Domain 1 (ABD1 / Calponin-Homology)"
+            elif 241 <= residue <= 3040:
+                return "Central Rod Domain (Spectrin Repeats R1-R24 / Hinges)"
+            elif 3041 <= residue <= 3408:
+                return "Cysteine-Rich Domain (CRD / beta-Dystroglycan Binding)"
+            elif residue > 3408:
+                return "C-Terminal Domain (CTD / Syntrophin-Dystrobrevin Binding)"
+            return "N-terminal"
+
+        # MECP2 functional domains (default fallback)
         if 90 <= residue <= 170:
-
             return "MBD"
-
-
-        # Transcriptional repression domain
         if 200 <= residue <= 310:
-
             return "TRD"
-
-
-        # C-terminal domain
         if residue > 310:
-
             return "CTD"
-
 
         return "N-terminal"

@@ -123,14 +123,48 @@ def banner():
 =================================================
 """)
 
+import argparse
+
+
 def main():
 
     banner()
 
-    if len(sys.argv) > 1 and sys.argv[1].strip():
-        disease_name = sys.argv[1].strip()
+    parser = argparse.ArgumentParser(
+        description="RareDiseasePipeline - Automated Genomic Drug Discovery Pipeline"
+    )
+    parser.add_argument(
+        "disease",
+        nargs="?",
+        default=None,
+        help="Disease name or acronym (e.g. 'DMD', 'Duchenne muscular dystrophy', 'Rett syndrome')"
+    )
+    parser.add_argument(
+        "--gene", "-g",
+        default=None,
+        help="Explicit HGNC gene symbol to bypass resolver (e.g. 'DMD', 'MECP2')"
+    )
+    parser.add_argument(
+        "--max-stage", "-s",
+        type=int,
+        default=None,
+        help="Maximum pipeline stage index to execute (0-16). E.g. 10 for Stages 00-10"
+    )
+    parser.add_argument(
+        "--non-interactive", "-y",
+        action="store_true",
+        help="Run without interactive Human-in-the-Loop prompts"
+    )
+
+    args = parser.parse_args()
+
+    disease_name = args.disease
+    gene_symbol = args.gene.strip().upper() if args.gene else None
+
+    if disease_name and disease_name.strip():
+        disease_name = disease_name.strip()
         print(f"Disease specified via command line: {disease_name}")
-    else:
+    elif not gene_symbol:
         try:
             disease_name = input(
                 "Enter disease name: "
@@ -138,20 +172,24 @@ def main():
         except (EOFError, KeyboardInterrupt):
             print("\nPipeline aborted by user.")
             sys.exit(0)
+    else:
+        disease_name = gene_symbol
 
-    if not disease_name:
-        print("\n❌ Error: No disease name provided. Exiting.")
+    if not disease_name and not gene_symbol:
+        print("\n❌ Error: No disease name or gene symbol provided. Exiting.")
         sys.exit(1)
 
+    if gene_symbol:
+        print(f"Explicit target gene specified: {gene_symbol}")
+
     print(
-        f"\n🧬 Initializing project for: {disease_name}\n"
+        f"\n🧬 Initializing project for: {disease_name} (Gene: {gene_symbol or 'auto-resolve'})\n"
     )
 
-
-    # Create disease object
-
+    # Create disease object (with explicit gene_symbol if supplied)
     project = Disease(
-        name=disease_name
+        name=disease_name,
+        gene_symbol=gene_symbol
     )
 
 
@@ -232,7 +270,8 @@ def main():
 
         result = pipeline.run(
             project,
-            interactive=True
+            interactive=(not args.non_interactive and args.max_stage is None),
+            max_stage=args.max_stage
         )
 
 

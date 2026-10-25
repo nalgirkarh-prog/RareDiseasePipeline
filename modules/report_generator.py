@@ -80,7 +80,7 @@ class ReportGenerator:
         report = {
             "metadata": {
                 "generated": str(datetime.now()),
-                "pipeline": "RareDiseasePipeline v2"
+                "pipeline": "RareDiseasePipeline v3"
             },
             "disease": {
                 "name": self.get_disease_name()

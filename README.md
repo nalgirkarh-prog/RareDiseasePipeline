@@ -1,14 +1,102 @@
-# 🧬 RareDiseasePipeline v2
+# 🧬 RareDiseasePipeline v3
 
 ## Automated Genomic Drug Discovery Pipeline for Rare Disease Research
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Status](https://img.shields.io/badge/Status-Research%20Prototype-orange)
+![Version](https://img.shields.io/badge/Version-3.0.0-purple)
 
 RareDiseasePipeline is an automated computational biology workflow that accelerates early-stage rare disease drug discovery by integrating genomic analysis, structural biology, regulatory network mapping, variant annotation, and virtual screening into a single reproducible pipeline.
 
-Given a disease name, the pipeline produces a structured computational report containing ranked drug candidates, docking scores, ADMET properties, variant impact annotations, and simulation-ready system files.
+Given a disease name or gene symbol, the pipeline produces a structured computational report containing ranked drug candidates, docking scores, ADMET properties, variant impact annotations, and simulation-ready system files.
+
+---
+
+# 🆕 What's New in v3
+
+## Critical Bug Fix: Disease Resolver Mapping
+
+**v2 defect:** When the pipeline received an input like `DMD`, Stage 00 (Disease Resolver) could incorrectly resolve it to `ERBB2` (HER2, Chr 17) instead of `DMD` (Dystrophin, Chr X / HGNC:2928). The root cause was a two-stage NCBI E-utilities fallback: the `[Disease/Phenotype]` field returned zero hits for acronyms, so the fallback used `[All Fields]`, where ERBB2 ranked first by relevance. The incorrect mapping was then **cached**, poisoning every subsequent re-run.
+
+**v3 fixes:**
+
+- **Option B — Curated HGNC Symbol Map:** `DiseaseResolverEngine` now checks a built-in `KNOWN_DISEASE_MAP` before any network call. This covers common rare disease names and acronyms (`dmd`, `duchenne`, `rett syndrome`, `sma`, `huntington`, `cystic fibrosis`, etc.) and maps them directly to verified HGNC symbols, bypassing the NCBI ambiguity entirely.
+- **Option A — Direct Gene Symbol Bypass:** If a `gene_symbol` is passed on the `Disease` model or via the CLI (`--gene DMD`), Stage 00 skips all resolver logic and uses the explicit symbol immediately.
+- **Cache Purge & Stale Cache Protection:** The poisoned `{"dmd": "ERBB2"}` entry is detected and removed at runtime. The cache is pre-seeded with correct entries for all curated diseases.
+- **NCBI Query Priority Fix:** `NCBIGeneClient` now queries `[Gene Name]` first for gene-symbol-shaped inputs (2–10 uppercase alphanumeric chars), then `[Disease/Phenotype]`, then `[Gene/Protein Name]` — eliminating the `[All Fields]` relevance collisions that caused the mismatch.
+
+## CLI Enhancements
+
+New flags added to `main.py`:
+
+```bash
+# Option A: bypass resolver — pass explicit HGNC gene symbol
+python main.py "DMD" --gene DMD
+
+# Stop after Stage 10 (variant analysis), skip interactive prompts
+python main.py "Duchenne muscular dystrophy" --max-stage 10 --non-interactive
+
+# Full interactive pipeline (default, unchanged)
+python main.py
+```
+
+| Flag | Short | Description |
+|---|---|---|
+| `--gene SYMBOL` | `-g` | Explicit HGNC gene symbol; bypasses Stage 00 resolver entirely |
+| `--max-stage N` | `-s` | Stop after Stage N (0–16); no interactive depth prompt required |
+| `--non-interactive` | `-y` | Disable all Human-in-the-Loop prompts for automated runs |
+
+## Stage 03 — Protein Model
+
+`protein.transcript_id` is now populated from the canonical transcript selected in Stage 02. This is forwarded to Stage 10 so the Ensembl VEP call uses the correct transcript (`ENST…`) rather than the ClinVar accession as a fallback.
+
+## Stage 10 — Variant Analysis Upgrades
+
+- **Canonical transcript routing to VEP:** `ENST00000357033` (or whichever transcript was selected) is passed to the VEP endpoint, ensuring consequences are resolved against the right isoform.
+- **Gene-aware functional domain mapping:** `VariantAnalyzer.predict_region()` now accepts `gene_symbol` and applies protein-specific domain boundaries:
+
+  **DMD — Dystrophin** (3,685 aa):
+  | Residues | Domain |
+  |---|---|
+  | 1 – 240 | Actin-Binding Domain 1 (ABD1 / Calponin-Homology) |
+  | 241 – 3,040 | Central Rod Domain (Spectrin Repeats R1–R24 + Hinges) |
+  | 3,041 – 3,408 | Cysteine-Rich Domain (CRD / β-Dystroglycan Binding) |
+  | 3,409 – 3,685 | C-Terminal Domain (CTD / Syntrophin-Dystrobrevin Binding) |
+
+  **MECP2** and all other proteins retain the existing MBD / TRD / CTD boundaries as the default fallback.
+
+## Validated on DMD — Stages 00 to 10
+
+The full corrected run for `DMD` produced:
+
+| Stage | Output |
+|---|---|
+| **00** Disease Resolver | `DMD → DMD` via curated HGNC map (HGNC:2928, Dystrophin, Chr X Xp21.2-p21.1) |
+| **01** Gene Fetcher | `ENSG00000198947`, Chr X, 31,097,677–33,339,609 bp (~2.24 Mb) |
+| **02** Transcript | `ENST00000357033` (DMD-203, canonical, 79 exons) |
+| **03** Protein | `ENSP00000354923`, 3,685 aa |
+| **04** UniProt | `P11532` (DMD_HUMAN, Dystrophin) |
+| **05** Structure Search | `1DXX` (ABD1 crystal, Chr X Xp21) |
+| **06** Structure Download | 1DXX domain coverage = 7% → auto-fallback to `AF_P11532` (full-length AlphaFold) |
+| **07** Regulatory Analysis | 52 STRING interactions: `SNTB1`, `SGCD`, `SGCA`, `CTNNAL1`, `SNTB2` |
+| **08** Pocket Detection | 54 fpocket binding pockets detected |
+| **09** ClinVar Variants | 10 variants retrieved (7 with protein HGVS) |
+| **10** VEP Consequences | `stop_gained` · `missense_variant` · `splice_acceptor_variant` — all correctly attributed to Dystrophin |
+
+ClinVar variants correctly resolved for Dystrophin (not ERBB2):
+
+| ClinVar UID | HGVS Coding | HGVS Protein | Significance | VEP | Domain |
+|---|---|---|---|---|---|
+| 5011354 | `c.5425G>T` | `p.Glu1809Ter` | **Pathogenic** | `stop_gained` | Central Rod Domain |
+| 5020078 | — | — | **Pathogenic** | — | Structural Deletion |
+| 5008800 | `c.149T>C` | `p.Leu50Pro` | VUS | `missense_variant` | ABD1 (Actin-Binding) |
+| 5019832 | `c.9690C>G` | `p.Asp3230Glu` | VUS | `missense_variant` | CRD (β-Dystroglycan) |
+| 5018219 | `c.9665T>C` | `p.Val3222Ala` | VUS | `missense_variant` | CRD (β-Dystroglycan) |
+| 5004733 | `c.2191_2193delinsGTA` | `p.Leu731Val` | VUS | `missense_variant` | Central Rod Domain |
+| 5004664 | `c.2096C>T` | `p.Ala699Val` | VUS | `missense_variant` | Central Rod Domain |
+| 5004802 | `c.9810TAA` | `p.Asn3272del` | VUS | In-frame Deletion | CRD (β-Dystroglycan) |
+| 5004527 | `c.10224-1G>T` | — | VUS | `splice_acceptor_variant` | Canonical Splice Site |
 
 ---
 
@@ -17,19 +105,22 @@ Given a disease name, the pipeline produces a structured computational report co
 ## Workflow Architecture
 
 ```
-Disease Input
+Disease Input  (name, acronym, or --gene SYMBOL)
       |
       ↓
 Stage 00 — Disease Resolver
+           ├─ Curated HGNC map (fast, offline)
+           ├─ Explicit gene_symbol bypass
+           └─ NCBI Gene E-utilities fallback
       |
       ↓
-Stage 01 — Gene Identification
+Stage 01 — Gene Identification (Ensembl)
       |
       ↓
-Stage 02 — Transcript Selection
+Stage 02 — Transcript Selection (canonical)
       |
       ↓
-Stage 03 — Protein Mapping
+Stage 03 — Protein Mapping  [+ transcript_id propagation]
       |
       ↓
 Stage 04 — UniProt Mapping
@@ -41,7 +132,7 @@ Stage 05 — Structure Search (PDB → AlphaFold fallback)
 Stage 06 — Structure Download + Domain Coverage Check
       |
       ↓
-Stage 07 — Regulatory Network Analysis
+Stage 07 — Regulatory Network Analysis (STRING)
       |
       ↓
 Stage 08 — Binding Pocket Detection (fpocket)
@@ -50,7 +141,7 @@ Stage 08 — Binding Pocket Detection (fpocket)
 Stage 09 — Variant Retrieval (ClinVar esummary)
       |
       ↓
-Stage 10 — Variant Impact Analysis (Ensembl VEP)
+Stage 10 — Variant Impact Analysis (Ensembl VEP)  [+ gene-aware domain mapping]
       |
       ↓
 Stage 11 — Ligand Screening (3 sets × 10, ChEMBL)
@@ -75,11 +166,11 @@ Stage 16 — Report Generation
 
 # ✨ Features & Human-in-the-Loop Interactivity
 
-## 0. Human-in-the-Loop Research Controls (New)
+## 0. Human-in-the-Loop Research Controls
 
 RareDiseasePipeline is designed as an interactive research software platform that empowers researchers to guide, override, and customize pipeline decisions:
 
-- **Selective Pipeline Execution Depth:** At startup, researchers can choose how far the pipeline runs — from lightweight preliminary target mapping (Stage 04) or pocket detection (Stage 08) up to full-scale molecular docking and simulation setup (Stage 16).
+- **Selective Pipeline Execution Depth:** At startup, researchers can choose how far the pipeline runs — from lightweight preliminary target mapping (Stage 04) or pocket detection (Stage 08) up to full-scale molecular docking and simulation setup (Stage 16). Or use `--max-stage N` to set this non-interactively.
 - **Protein Structure Override:** Before downloading or docking, the user can inspect the pipeline's selected structure and override it with a literature PDB ID (e.g. `2ARF`) or a custom local `.pdb` file path from their own experimental research.
 - **Literature Ligand Input & Substitution:** After automated ChEMBL screening, researchers can enter SMILES strings, PubChem CIDs, or ChEMBL IDs for candidates identified in literature. These user-supplied ligands are automatically calculated via RDKit and included in the docking screen.
 
@@ -87,9 +178,16 @@ RareDiseasePipeline is designed as an interactive research software platform tha
 
 ## 1. Disease-to-Gene Resolution
 
-Given a rare disease name, the pipeline identifies the associated molecular target through an internal disease-target database.
+Given a rare disease name or acronym, the pipeline resolves the primary molecular target through a three-tier system:
+
+1. **Curated HGNC Map** — instant, offline, no API calls
+2. **Explicit bypass** (`--gene SYMBOL` or `Disease(gene_symbol=...)`)
+3. **NCBI Gene E-utilities** — with improved query priority to prevent false-positive matches
 
 ```
+Input:  DMD
+Output: DMD  (HGNC:2928, Dystrophin, Chr X)
+
 Input:  Rett Syndrome
 Output: MECP2
 ```
@@ -111,8 +209,7 @@ Retrieves from Ensembl:
 Selects the canonical protein-coding transcript to eliminate downstream ambiguity during structural and variant analysis.
 
 ```
-Canonical Transcript: MECP2-201
-Transcript ID:        ENST00000303391
+Canonical Transcript: ENST00000357033  (DMD-203)
 ```
 
 ---
@@ -122,13 +219,15 @@ Transcript ID:        ENST00000303391
 Retrieves:
 
 - Ensembl protein identifier
+- Canonical transcript ID (propagated to Stage 10 for VEP)
 - UniProt accession
 - Amino acid sequence and full-length residue count
 
 ```
-Protein: MECP2
-UniProt: P51608
-Length:  498 amino acids
+Protein:     ENSP00000354923  (Dystrophin)
+UniProt:     P11532
+Length:      3,685 amino acids
+Transcript:  ENST00000357033
 ```
 
 ---
@@ -137,15 +236,15 @@ Length:  498 amino acids
 
 Searches RCSB PDB for experimentally determined structures. All structures are run through **PDBFixer** (adds missing atoms/residues, replaces non-standard residues).
 
-**Automatic Structure Remaking Fallback (new):** After downloading, the pipeline computes `domain_coverage = chain_residue_count / full_protein_length`. If the experimental PDB structure is broken, corrupted, or incomplete (covering < 50% of the full-length protein, e.g. an isolated domain crystal like MECP2's MBD), the pipeline **automatically remakes the full-length structure using AlphaFold**. This reduces structure-related pipeline failures to near zero.
+**Automatic Structure Remaking Fallback:** After downloading, the pipeline computes `domain_coverage = unique_residue_count / full_protein_length`. If the experimental PDB structure is broken, corrupted, or incomplete (covering < 50% of the full-length protein, e.g. a domain-only crystal), the pipeline **automatically remakes the full-length structure using AlphaFold**. This reduces structure-related pipeline failures to near zero.
 
-**AlphaFold disorder check (new):** For AlphaFold models, the mean pLDDT of the TRD region (residues 200–310) is computed from B-factors. A mean pLDDT < 70 triggers an additional warning — preventing false confidence that an AlphaFold download resolves a disordered region.
+**AlphaFold disorder check:** For AlphaFold models, the mean pLDDT of the TRD region (residues 200–310) is computed from B-factors. A mean pLDDT < 70 triggers an additional warning — preventing false confidence that an AlphaFold download resolves a disordered region.
 
 ```
-Structure:       AF_P51608 (Remade full-length model)
-Domain Coverage: 100% (498/498 aa)
-🔄 Note: Experimental structure 1QK9 was incomplete (17% coverage).
-         Automatically remade full-length structure using AlphaFold.
+Structure:       AF_P11532 (AlphaFold fallback, full-length Dystrophin)
+Original PDB:    1DXX (ABD1 crystal, 7% domain coverage)
+Note:  Experimental structure 1DXX was incomplete (7% coverage).
+       Automatically remade full-length structure using AlphaFold.
 ```
 
 ---
@@ -155,7 +254,7 @@ Domain Coverage: 100% (498/498 aa)
 Identifies molecular partners and regulatory proteins via STRING DB interaction data. Interaction scoring prioritizes biologically relevant regulators.
 
 ```
-MECP2 regulators: NCOR1 (0.999), SIN3A (0.998), HDAC1 (0.977), HDAC2 (0.975)
+DMD regulators: SNTB1, SGCD, SGCA, CTNNAL1, SNTB2 (52 total interactions)
 ```
 
 ---
@@ -168,10 +267,8 @@ Identifies candidate ligand-binding regions using **fpocket**. Output per pocket
 - **Center coordinates** (x, y, z) — computed from alpha-sphere atom centroids
 - **Bounding box dimensions** (size_x, size_y, size_z) — used directly as the AutoDock Vina search box
 
-> **Previously:** `center_x/y/z` and `size_x/y/z` were always `null` despite fpocket running successfully. Now they are computed from each pocket's `_vert.pqr` file and populated into the `Pocket` model before docking.
-
 ```
-Pocket:       pocket9
+Pocket:       pocket1
 Volume:       500.7 Å³
 Druggability: 0.769
 Center:       (x=12.4, y=−3.1, z=8.7)
@@ -182,20 +279,18 @@ Box:          (18.0 × 14.3 × 16.5 Å)
 
 ## 8. Variant Retrieval (ClinVar esummary)
 
-Fetches ClinVar records for the target gene. Each variant is now annotated with real data from the **ClinVar esummary JSON endpoint**:
+Fetches ClinVar records for the target gene. Each variant is annotated with real data from the **ClinVar esummary JSON endpoint**:
 
-- `hgvs_c` — NM_-prefixed coding HGVS (e.g., `NM_004992.4:c.397C>T`)
-- `hgvs_p` — Protein HGVS (e.g., `NP_004983.2:p.Arg133Cys`)
+- `hgvs_c` — NM_-prefixed coding HGVS (e.g., `NM_004006.3:c.5425G>T`)
+- `hgvs_p` — Protein HGVS (e.g., `p.Glu1809Ter`)
 - `clinical_significance` — e.g., `Pathogenic`, `Likely pathogenic`, `VUS`
 - `residue` — integer extracted from HGVS protein notation
-
-> **Previously:** Every variant was hardcoded to `clinical_significance="unknown"`, `hgvs_c=None`, `hgvs_p=None` — indistinguishable from a stage that never ran. Fields that genuinely have no ClinVar data now return `None` rather than the misleading sentinel.
 
 ---
 
 ## 9. Variant Impact Analysis (Ensembl VEP)
 
-For each variant with a coding HGVS string, calls the **Ensembl VEP REST API** to retrieve the `most_severe_consequence` (e.g., `missense_variant`, `stop_gained`). Maps each variant to a functional domain (MBD, TRD, CTD, N-terminal) using residue coordinates.
+For each variant with a coding HGVS string, calls the **Ensembl VEP REST API** using the canonical transcript ID to retrieve the `most_severe_consequence` (e.g., `missense_variant`, `stop_gained`, `splice_acceptor_variant`). Maps each variant to a functional domain using **gene-specific residue boundary definitions**.
 
 Output per variant:
 
@@ -203,8 +298,8 @@ Output per variant:
 |---|---|
 | `hgvs_c` / `hgvs_p` | ClinVar esummary |
 | `clinical_significance` | ClinVar esummary |
-| `consequence` | Ensembl VEP |
-| `region` | Residue → domain map |
+| `consequence` | Ensembl VEP (via canonical transcript) |
+| `region` | Residue → gene-aware domain map |
 | `mapped` | Residue ≤ protein length |
 
 ---
@@ -230,23 +325,18 @@ Docking is executed with **AutoDock Vina** using a **pocket-specific search box*
 3. **Fallback:** if nothing clears −7.0 kcal/mol, select the least-bad negative score across all sets.
 4. Non-binding scores (> 0 kcal/mol) are excluded from candidate selection.
 
-### Reliability improvements (new)
+### Reliability Improvements
 
-**Per-ligand 120-second hard timeout:** Each ligand is docked inside a `ThreadPoolExecutor` with a 120s wall-clock limit. A hung Vina process triggers `status="timeout"` and the loop continues — one stuck ligand can no longer silently kill the whole stage.
+**Per-ligand 120-second hard timeout:** Each ligand is docked inside a `ThreadPoolExecutor` with a 120s wall-clock limit. A hung Vina process triggers `status="timeout"` and the loop continues.
 
-**Crash-recovery checkpointing:** `output/docking_checkpoint.json` is written after every ligand attempt. A pipeline restart resumes from the last completed ligand rather than redoing all preceding ones.
+**Crash-recovery checkpointing:** `output/docking_checkpoint.json` is written after every ligand attempt. A pipeline restart resumes from the last completed ligand.
 
-**Complete result audit:** Every attempt — whether `success`, `failed`, or `timeout` — is persisted with its status and, on failure, a real error message. Results are written to `output/docking_all_results.json`.
+**Complete result audit:** Every attempt — whether `success`, `failed`, or `timeout` — is persisted with its status and error message. Results are written to `output/docking_all_results.json`.
 
-**Parity-check log line:** At the end of docking, a summary is always printed:
+**Parity-check log line:**
 ```
 📊 Docking parity OK — screened=14 attempted=14 success=1 failed/timeout=13
 ```
-Or, if some ligands were not attempted at all:
-```
-⚠️ PARITY WARNING — screened=14 attempted=11 (delta=3)
-```
-This pins the ligand-attrition point to the docking stage vs. ranking/report generation — previously undiagnosable from the log alone.
 
 ---
 
@@ -292,26 +382,26 @@ Output: complete `run_md.sh` script and topology parameters for a 4-step MD simu
 # 📂 Project Structure
 
 ```
-RareDiseasePipeline_clean/
+RareDiseasePipeline/
 │
-├── main.py                    # Entry point
+├── main.py                    # Entry point  [v3: --gene, --max-stage, --non-interactive]
 ├── run_pipeline.py            # Pipeline runner
 ├── requirements.txt
 ├── environment.yml
 │
 ├── pipeline/
-│   ├── pipeline.py            # Stage orchestrator
-│   ├── stage00_resolve.py     # Disease → gene symbol
+│   ├── pipeline.py            # Stage orchestrator  [v3: max_stage param]
+│   ├── stage00_resolve.py     # Disease → gene symbol  [v3: explicit bypass]
 │   ├── stage01_gene.py        # Gene characterization
 │   ├── stage02_transcript.py  # Canonical transcript selection
-│   ├── stage03_protein.py     # Protein mapping
+│   ├── stage03_protein.py     # Protein mapping  [v3: transcript_id propagation]
 │   ├── stage04_uniprot.py     # UniProt accession
 │   ├── stage05_structure.py   # PDB search
 │   ├── stage06_download.py    # Download + domain coverage check
 │   ├── stage07_regulation.py  # Regulatory network
 │   ├── stage08_pocket.py      # fpocket detection
 │   ├── stage09_variants.py    # ClinVar esummary retrieval
-│   ├── stage10_variant_analysis.py  # Ensembl VEP consequence
+│   ├── stage10_variant_analysis.py  # Ensembl VEP  [v3: transcript routing]
 │   ├── stage11_ligand.py      # ChEMBL ligand screening
 │   ├── stage12_docking.py     # Vina docking (timeout + checkpoint)
 │   ├── stage13_ranking.py     # Ranking + audit log
@@ -322,13 +412,17 @@ RareDiseasePipeline_clean/
 ├── modules/
 │   ├── pocket_analysis.py     # fpocket info parser (+ geometry wiring)
 │   ├── pocket_geometry.py     # Alpha-sphere centroid + bbox calculator
-│   ├── variant_analysis.py    # Residue/domain mapping
+│   ├── variant_analysis.py    # Residue/domain mapping  [v3: gene-aware domains]
 │   ├── receptor_preparer.py
 │   ├── ligand_preparer.py
 │   ├── report_generator.py
 │   └── ...
 │
 ├── clients/
+│   ├── disease/
+│   │   ├── resolver.py        # [v3: KNOWN_DISEASE_MAP, stale-cache purge, bypass]
+│   │   └── cache.py
+│   ├── ncbi_client.py         # [v3: [Gene Name] priority fix]
 │   ├── clinvar.py             # ClinVar (esearch + esummary + efetch)
 │   ├── ensembl.py             # Ensembl REST (+ VEP endpoint)
 │   ├── vina.py                # AutoDock Vina subprocess wrapper
@@ -341,7 +435,7 @@ RareDiseasePipeline_clean/
 │   ├── structure.py           # + domain_coverage, alphafold_trd_plddt
 │   ├── pocket.py              # center_x/y/z, size_x/y/z
 │   ├── variant.py
-│   ├── protein.py             # length field
+│   ├── protein.py             # [v3: transcript_id field]
 │   └── ...
 │
 ├── output/
@@ -373,7 +467,7 @@ RareDiseasePipeline_clean/
 ## Clone Repository
 
 ```bash
-git clone https://github.com/yourusername/RareDiseasePipeline.git
+git clone https://github.com/nalgirkarh-prog/RareDiseasePipeline.git
 cd RareDiseasePipeline
 ```
 
@@ -394,12 +488,32 @@ pip install -r requirements.txt
 
 # ▶️ Usage
 
+### Interactive (default)
+
 ```bash
 python main.py
 ```
 
 ```
 Enter disease name: Rett Syndrome
+```
+
+### Command-line disease name
+
+```bash
+python main.py "Duchenne muscular dystrophy"
+```
+
+### Bypass resolver with explicit gene symbol
+
+```bash
+python main.py "DMD" --gene DMD
+```
+
+### Run up to Stage 10 only, non-interactively
+
+```bash
+python main.py "DMD" --max-stage 10 --non-interactive
 ```
 
 Example output:
@@ -450,10 +564,10 @@ The pipeline should be treated as a hypothesis-generation tool, not a replacemen
 
 # ⚠️ Limitations
 
-- Disease-gene relationships depend on available databases
+- Disease-gene relationships depend on available databases; curated maps cover the most common rare diseases only
 - Docking scores correlate with, but do not directly predict, biological activity
 - Domain-only PDB structures limit pocket detection and docking to the crystallized region
-- Intrinsically disordered regions (e.g., MECP2 TRD) cannot be reliably modelled by AlphaFold
+- Intrinsically disordered regions (e.g., MECP2 TRD, large central rod segments of Dystrophin) cannot be reliably modelled by AlphaFold
 - Experimental validation remains essential for all candidates
 
 ---
@@ -483,10 +597,10 @@ RareDiseasePipeline: Automated Genomic Drug Discovery Pipeline for Rare Disease 
   title     = {RareDiseasePipeline: A Modular Research Software Platform for
                Automated Disease-to-Molecular-Dynamics System Preparation},
   year      = {2026},
-  version   = {2.0.0},
+  version   = {3.0.0},
   publisher = {GitHub},
-  url       = {(https://github.com/nalgirkarh-prog/RareDiseasePipeline)},
-  note      = {Accessed: 2026-08-09},
+  url       = {https://github.com/nalgirkarh-prog/RareDiseasePipeline},
+  note      = {Accessed: 2026-10-25},
   license   = {MIT}
 }
 ```
@@ -497,9 +611,9 @@ RareDiseasePipeline: Automated Genomic Drug Discovery Pipeline for Rare Disease 
 
 **Harsh Nalgirkar**
 
-Department of Pharmacy  
-LSHGCT's Gahlot Institute of Pharmacy  
-University of Mumbai  
+Department of Pharmacy
+LSHGCT's Gahlot Institute of Pharmacy
+University of Mumbai
 Navi Mumbai, India
 
 Research interests: Computational Drug Discovery · Molecular Dynamics Simulation · Bioinformatics · Rare Disease Therapeutics

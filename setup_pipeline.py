@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RareDiseasePipeline v2
+RareDiseasePipeline v3
 Automatic Environment Installer
 
 Author: Harsh Nalgirkar

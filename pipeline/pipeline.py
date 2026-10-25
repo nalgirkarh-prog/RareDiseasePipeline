@@ -1,5 +1,5 @@
 """
-RareDiseasePipeline v2
+RareDiseasePipeline v3
 Pipeline Controller
 
 Author: Harsh Nalgirkar
@@ -139,7 +139,7 @@ class Pipeline:
 
     # =========================================================
 
-    def run(self, disease, interactive: bool = True):
+    def run(self, disease, interactive: bool = True, max_stage: int | None = None):
         self.banner()
         self.verify_pipeline()
         self.check_dependencies()
@@ -148,9 +148,11 @@ class Pipeline:
         # -----------------------------------------------------
         # Interactive Execution Depth Choice (Human Interface)
         # -----------------------------------------------------
-        max_stage = 16
-        if interactive:
-            max_stage = HumanInterface.prompt_execution_depth()
+        if max_stage is None:
+            if interactive:
+                max_stage = HumanInterface.prompt_execution_depth()
+            else:
+                max_stage = 16
 
         logger.section("Pipeline Started")
 

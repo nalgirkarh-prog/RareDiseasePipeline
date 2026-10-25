@@ -36,9 +36,10 @@ class VariantAnalysisStage:
             consequence = variant.consequence  # may already be set upstream
             if consequence is None and variant.hgvs_c:
                 try:
+                    transcript_id = getattr(protein, "transcript_id", None) or getattr(variant, "accession", None)
                     consequence = self.ensembl.vep_hgvs(
                         variant.hgvs_c,
-                        transcript_id=getattr(variant, "accession", None)
+                        transcript_id=transcript_id
                     )
                     if consequence:
                         print(f"  VEP consequence for {variant.variant_id}: {consequence}")
@@ -63,7 +64,7 @@ class VariantAnalysisStage:
                     residue,
                     protein.sequence
                 ),
-                "region": self.analyzer.predict_region(residue),
+                "region": self.analyzer.predict_region(residue, gene_symbol=variant.gene),
             }
 
             analyzed.append(result)

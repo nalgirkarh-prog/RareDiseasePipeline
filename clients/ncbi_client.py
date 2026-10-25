@@ -64,35 +64,58 @@ class NCBIGeneClient:
         """
         disease_name = self._disease_name(disease)
 
-        # Restrict to human genes; [Disease/Phenotype] is the correct E-utilities
-        # field for disease association searches.
-        term = f'"{disease_name}"[Disease/Phenotype] AND Homo sapiens[Organism]'
+        # 1. If disease_name is formatted like a gene symbol (e.g. "DMD", "MECP2"),
+        # check NCBI [Gene Name] first to avoid relevance false-positives in [All Fields].
+        clean_symbol = disease_name.strip().upper()
+        idlist = []
+        import re
+        if re.match(r"^[A-Z0-9-]{2,10}$", clean_symbol):
+            gene_term = f'"{clean_symbol}"[Gene Name] AND Homo sapiens[Organism]'
+            search_json = get_json(
+                f"{self.BASE}/esearch.fcgi",
+                params={
+                    "db": "gene",
+                    "term": gene_term,
+                    "retmode": "json",
+                    "retmax": 1,
+                    "sort": "relevance",
+                },
+            )
+            idlist = (
+                search_json
+                .get("esearchresult", {})
+                .get("idlist", [])
+            )
 
-        search_json = get_json(
-            f"{self.BASE}/esearch.fcgi",
-            params={
-                "db": "gene",
-                "term": term,
-                "retmode": "json",
-                "retmax": 1,
-                "sort": "relevance",
-            },
-        )
+        # 2. Restrict to human genes; [Disease/Phenotype] is the standard field
+        # for disease association searches.
+        if not idlist:
+            polite_pause()
+            term = f'"{disease_name}"[Disease/Phenotype] AND Homo sapiens[Organism]'
+            search_json = get_json(
+                f"{self.BASE}/esearch.fcgi",
+                params={
+                    "db": "gene",
+                    "term": term,
+                    "retmode": "json",
+                    "retmax": 1,
+                    "sort": "relevance",
+                },
+            )
+            idlist = (
+                search_json
+                .get("esearchresult", {})
+                .get("idlist", [])
+            )
 
-        idlist = (
-            search_json
-            .get("esearchresult", {})
-            .get("idlist", [])
-        )
-
-        # Fallback: some diseases index better under the plain [Disease] tag.
+        # 3. Fallback: search gene/protein name before broad search
         if not idlist:
             polite_pause()
             search_json = get_json(
                 f"{self.BASE}/esearch.fcgi",
                 params={
                     "db": "gene",
-                    "term": f'{disease_name}[Disease] AND Homo sapiens[Organism]',
+                    "term": f'"{disease_name}"[Gene/Protein Name] AND Homo sapiens[Organism]',
                     "retmode": "json",
                     "retmax": 1,
                 },
