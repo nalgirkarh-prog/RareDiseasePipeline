@@ -20,4 +20,6 @@ class Variant(BaseModel):
 
     residue: Optional[int] = None
 
+    variation_type: Optional[str] = None
+
     mapped: bool = False

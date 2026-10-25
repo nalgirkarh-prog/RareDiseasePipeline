@@ -320,7 +320,7 @@ class Pipeline:
         ligands = self.execute_stage(
             11,
             "Ligand Screening",
-            lambda: self.stages[11].run(protein, pockets, regulation),
+            lambda: self.stages[11].run(protein, pockets, regulation, gene=gene),
             "ligands"
         )
 
@@ -338,19 +338,84 @@ class Pipeline:
         # Stage 12 : Molecular Docking
         # =====================================================
         if pockets:
-            sorted_pockets = sorted(
-                pockets,
-                key=lambda p: (
-                    p.druggability if p.druggability is not None else p.score
-                ),
-                reverse=True,
-            )
-            best_pocket = sorted_pockets[0]
-            print(
-                f"\n📍 Selected pocket: {best_pocket.pocket_id} "
-                f"(druggability={best_pocket.druggability}, "
-                f"score={best_pocket.score})"
-            )
+            # Filter to druggable pockets only (druggability >= 0.2)
+            MIN_DRUGGABILITY = 0.2
+            druggable_pockets = [
+                p for p in pockets
+                if p.druggability is not None and p.druggability >= MIN_DRUGGABILITY
+                and p.center_x is not None  # Must have computed geometry
+            ]
+
+            if druggable_pockets:
+                # Identify pathogenic mutation residues from Stage 09 / 10
+                pathogenic_residue_map = {}
+                if variants:
+                    for v in variants:
+                        if v.residue and v.clinical_significance and "pathogenic" in str(v.clinical_significance).lower():
+                            pathogenic_residue_map[v.residue] = f"{v.hgvs_p or v.variant_id}"
+
+                # Annotate pockets that line pathogenic mutation sites
+                for p in druggable_pockets:
+                    contacted = []
+                    for r in getattr(p, "residues", []):
+                        if r in pathogenic_residue_map:
+                            contacted.append(f"Res {r} ({pathogenic_residue_map[r]})")
+                    p.contacted_variants = contacted
+
+                mutation_pockets = [p for p in druggable_pockets if p.contacted_variants]
+
+                sorted_pockets = sorted(
+                    druggable_pockets,
+                    key=lambda p: (
+                        p.druggability if p.druggability is not None else p.score
+                    ),
+                    reverse=True,
+                )
+
+                if mutation_pockets:
+                    mutation_pockets.sort(
+                        key=lambda p: (
+                            p.druggability if p.druggability is not None else p.score
+                        ),
+                        reverse=True,
+                    )
+                    best_pocket = mutation_pockets[0]
+                    print(
+                        f"\n🎯 PRIORITIZED MUTATION POCKET: {best_pocket.pocket_id} "
+                        f"(druggability={best_pocket.druggability}, score={best_pocket.score})"
+                    )
+                    print(
+                        f"   Directly contacts pathogenic mutation: {', '.join(best_pocket.contacted_variants)}"
+                    )
+                else:
+                    best_pocket = sorted_pockets[0]
+                    print(
+                        f"\n📍 Selected pocket: {best_pocket.pocket_id} "
+                        f"(druggability={best_pocket.druggability}, "
+                        f"score={best_pocket.score})"
+                    )
+
+                print(
+                    f"   {len(druggable_pockets)} druggable pockets out of "
+                    f"{len(pockets)} total (threshold >= {MIN_DRUGGABILITY})"
+                )
+            else:
+                # Fallback: use best-scoring pocket with geometry even if below threshold
+                pockets_with_geometry = [p for p in pockets if p.center_x is not None]
+                if pockets_with_geometry:
+                    best_pocket = max(pockets_with_geometry, key=lambda p: p.score or 0)
+                    print(
+                        f"\n⚠️  No pockets meet druggability threshold ({MIN_DRUGGABILITY}). "
+                        f"Using best-scoring pocket: {best_pocket.pocket_id} "
+                        f"(druggability={best_pocket.druggability}, score={best_pocket.score})"
+                    )
+                    print("   ⚠️  Docking results may be unreliable — no highly druggable pocket found.")
+                else:
+                    best_pocket = None
+                    print(
+                        f"\n❌ No pockets with computed geometry found. "
+                        f"Docking will be skipped."
+                    )
         else:
             best_pocket = None
 

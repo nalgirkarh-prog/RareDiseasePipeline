@@ -21,8 +21,8 @@ from collections import OrderedDict
 from clients.chembl import ChEMBLClient
 from models.ligand import Ligand
 
-# Hard global cap: 3 docking sets × 10 ligands each.
-GLOBAL_LIGAND_CAP = 30
+# Hard global cap: 5 docking sets × 10 ligands each.
+GLOBAL_LIGAND_CAP = 50
 
 
 class LigandDiscovery:
@@ -35,10 +35,12 @@ class LigandDiscovery:
         interactions,
         min_confidence=0.70,
         max_targets=10,
-        activity_limit=1000
+        activity_limit=1000,
+        primary_gene=None
     ):
         """
-        Discover ligands from ChEMBL using STRING interaction partners.
+        Discover ligands from ChEMBL using the primary gene target and
+        STRING interaction partners.
 
         Parameters
         ----------
@@ -47,14 +49,85 @@ class LigandDiscovery:
         max_targets   : int    — maximum number of STRING partners to query
         activity_limit: int    — ChEMBL activity records fetched per target
                                  (server-side limit before local filtering)
+        primary_gene  : object | str | None
+                        The primary gene target.  When provided its symbol is
+                        queried in ChEMBL *before* STRING partners so that the
+                        actual gene of interest always contributes ligands.
 
         Returns
         -------
         list[Ligand]  — up to GLOBAL_LIGAND_CAP unique ligands, sourced from
-                        as many ranked STRING targets as have ChEMBL activity.
+                        the primary gene target and as many ranked STRING
+                        targets as have ChEMBL activity.
         """
 
         ligands: OrderedDict = OrderedDict()
+
+        # ── 0. Query the PRIMARY gene target in ChEMBL first ──────────────
+        primary_count = 0
+        if primary_gene is not None:
+            symbol = getattr(primary_gene, 'symbol', primary_gene)
+            print(f"\n── Primary target ligands ──")
+            print(f"Querying ChEMBL for primary gene target: {symbol}")
+
+            try:
+                search = self.chembl.search_target(symbol)
+                if search.get("targets"):
+                    chembl_id = search["targets"][0]["target_chembl_id"]
+                    print(f"Primary target ChEMBL ID: {chembl_id}")
+
+                    activities = self.chembl.get_activities(
+                        chembl_id, limit=activity_limit
+                    )
+
+                    for activity in activities.get("activities", []):
+                        if primary_count >= 15:
+                            break
+
+                        smiles = activity.get("canonical_smiles")
+                        if not smiles:
+                            continue
+
+                        molecule = activity.get("molecule_chembl_id")
+                        if molecule in ligands:
+                            continue
+
+                        try:
+                            details = self.chembl.get_molecule(molecule)
+                        except Exception:
+                            continue
+
+                        props = details.get("molecule_properties", {})
+
+                        ligand = Ligand(
+                            ligand_id=molecule,
+                            name=(
+                                details.get("pref_name")
+                                or details.get("molecule_chembl_id")
+                                or molecule
+                            ),
+                            smiles=smiles,
+                            molecular_weight=float(
+                                props.get("full_mwt") or 0
+                            ),
+                            logp=float(props.get("alogp") or 0),
+                            hba=int(props.get("hba") or 0),
+                            hbd=int(props.get("hbd") or 0),
+                            rotatable_bonds=int(props.get("rtb") or 0),
+                            source="ChEMBL",
+                        )
+
+                        ligands[molecule] = ligand
+                        primary_count += 1
+
+                    print(
+                        f"  → {primary_count} ligand(s) from primary target "
+                        f"{symbol}"
+                    )
+                else:
+                    print(f"  No ChEMBL targets found for {symbol}")
+            except Exception:
+                print(f"  Failed to query ChEMBL for primary target {symbol}")
 
         # ── 1. Rank and filter STRING interactors ──────────────────────────
         ranked = sorted(interactions, key=lambda x: x.score, reverse=True)
@@ -67,11 +140,18 @@ class LigandDiscovery:
             if len(targets) >= max_targets:
                 break
 
-        print(f"\nSearching ChEMBL for {len(targets)} targets...")
+        remaining_budget = GLOBAL_LIGAND_CAP - len(ligands)
+        print(f"\n── STRING partner ligands ──")
+        print(
+            f"Searching ChEMBL for {len(targets)} STRING partners "
+            f"(remaining budget: {remaining_budget})..."
+        )
 
         # ── 2. Per-target cap prevents any single target from monopolising
-        #       the 30-ligand budget (Fix 1). ────────────────────────────────
-        per_target_cap = math.ceil(GLOBAL_LIGAND_CAP / max(len(targets), 1))
+        #       the ligand budget (Fix 1). ─────────────────────────────────
+        per_target_cap = math.ceil(
+            remaining_budget / max(len(targets), 1)
+        )
 
         for target in targets:
 

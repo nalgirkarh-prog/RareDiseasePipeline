@@ -55,6 +55,21 @@ class PocketAnalyzer:
                 source_file=atm_file,
             )
 
+            # Extract residues forming the pocket from the pocket atom PDB
+            if os.path.exists(atm_file):
+                res_set = set()
+                try:
+                    with open(atm_file) as af:
+                        for line in af:
+                            if line.startswith("ATOM") and len(line) >= 26:
+                                try:
+                                    res_set.add(int(line[22:26].strip()))
+                                except ValueError:
+                                    pass
+                    pocket.residues = sorted(res_set)
+                except Exception:
+                    pass
+
             # Compute center and bounding box from alpha-sphere coordinates
             if os.path.exists(pqr_file):
                 try:

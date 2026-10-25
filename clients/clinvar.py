@@ -31,7 +31,23 @@ class ClinVarClient:
                 "db": "clinvar",
                 "term": f"{gene}[gene]",
                 "retmode": "json",
-                "retmax": 20,
+                "retmax": 500,
+            },
+        )
+        polite_pause()
+        return result
+
+    def search_gene_pathogenic(self, gene: str) -> dict:
+        """Return ClinVar esearch JSON filtered to Pathogenic/Likely pathogenic variants."""
+        gene = str(gene).strip()
+
+        result = get_json(
+            f"{self.BASE}/esearch.fcgi",
+            params={
+                "db": "clinvar",
+                "term": f'{gene}[gene] AND ("pathogenic"[clinical_significance] OR "likely pathogenic"[clinical_significance])',
+                "retmode": "json",
+                "retmax": 100,
             },
         )
         polite_pause()

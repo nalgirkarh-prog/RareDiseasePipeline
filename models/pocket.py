@@ -21,3 +21,6 @@ class Pocket(BaseModel):
     size_z: Optional[float] = None
 
     source_file: Optional[str] = None
+
+    residues: list[int] = []
+    contacted_variants: list[str] = []

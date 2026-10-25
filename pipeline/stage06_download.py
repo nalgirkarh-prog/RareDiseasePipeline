@@ -110,8 +110,12 @@ class DownloadStage:
     # ------------------------------------------------------------------
 
     def _fix_pdb(self, filepath: str) -> str:
-        print(f"  Running PDBFixer on {filepath}...")
         outfile = filepath.replace(".pdb", "_fixed.pdb")
+        if Path(outfile).exists() and Path(outfile).stat().st_size > 500:
+            print(f"  ✓ Found existing fixed PDB structure: {outfile}")
+            return outfile
+
+        print(f"  Running PDBFixer on {filepath}...")
         try:
             subprocess.run(
                 [

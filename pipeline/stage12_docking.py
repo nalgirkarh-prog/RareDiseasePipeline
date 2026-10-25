@@ -104,6 +104,19 @@ class DockingStage:
     # ------------------------------------------------------------------
 
     def run(self, pdb_file, pocket, ligands, context: dict | None = None):
+        # Validate pocket has computed geometry
+        if pocket is None:
+            print("\n❌ No valid binding pocket available. Skipping docking stage.")
+            return [], []
+
+        if pocket.center_x is None or pocket.center_y is None or pocket.center_z is None:
+            print(
+                f"\n❌ Pocket {pocket.pocket_id} has no computed geometry "
+                f"(center_x/y/z is None). Cannot define docking search box. "
+                f"Skipping docking stage."
+            )
+            return [], []
+
         prep_result: ReceptorPrepResult = self.receptor.prepare(pdb_file.file_path)
         receptor = prep_result.pdbqt_path
 

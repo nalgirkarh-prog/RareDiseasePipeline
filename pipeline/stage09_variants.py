@@ -18,6 +18,7 @@ import re
 
 from clients.clinvar import ClinVarClient
 from models.variant import Variant
+from utils.http import polite_pause
 
 
 def _extract_residue(hgvs_p: str | None) -> int | None:
@@ -79,10 +80,22 @@ def _parse_esummary(summary: dict) -> dict:
             if p_match:
                 hgvs_p = p_match.group(0)
 
+    # 4. Extract variation_type from variation_set or top-level obj_type
+    variation_type = None
+    if variation_set and isinstance(variation_set, list):
+        vt = variation_set[0].get("variation_type")
+        if vt:
+            variation_type = str(vt).strip()
+    if not variation_type:
+        obj_type = summary.get("obj_type")
+        if obj_type:
+            variation_type = str(obj_type).strip()
+
     return {
         "clinical_significance": clin_sig,
         "hgvs_c": hgvs_c,
         "hgvs_p": hgvs_p,
+        "variation_type": variation_type,
     }
 
 
@@ -107,18 +120,42 @@ class VariantFetcher:
 
         symbol = gene.symbol if hasattr(gene, "symbol") else gene
 
-        results = self.client.search_gene(symbol)
-        ids = (
-            results
+        # 1. Pathogenic / Likely pathogenic variants first (up to 100)
+        path_results = self.client.search_gene_pathogenic(symbol)
+        path_ids = (
+            path_results
             .get("esearchresult", {})
             .get("idlist", [])
         )
+        print(f"Found {len(path_ids)} Pathogenic/Likely pathogenic ClinVar records")
+        polite_pause()
 
-        print(f"Found {len(ids)} ClinVar records")
+        # 2. Broader set (up to 500)
+        all_results = self.client.search_gene(symbol)
+        all_ids = (
+            all_results
+            .get("esearchresult", {})
+            .get("idlist", [])
+        )
+        print(f"Found {len(all_ids)} total ClinVar records")
+
+        # 3. Combine: pathogenic first, deduplicated, cap at 50
+        seen: set[str] = set()
+        combined_ids: list[str] = []
+        for uid in path_ids + all_ids:
+            if uid not in seen:
+                seen.add(uid)
+                combined_ids.append(uid)
+        combined_ids = combined_ids[:50]
+        print(f"Processing {len(combined_ids)} variants (pathogenic-prioritised, deduped)")
 
         variants: list[Variant] = []
+        sig_counts: dict[str, int] = {}
 
-        for uid in ids[:10]:
+        for i, uid in enumerate(combined_ids):
+            if i > 0 and i % 10 == 0:
+                print(f"  ... processed {i}/{len(combined_ids)} variants")
+
             summary = self.client.fetch_esummary(uid)
             parsed = _parse_esummary(summary)
 
@@ -132,15 +169,23 @@ class VariantFetcher:
                 hgvs_c=parsed["hgvs_c"],
                 hgvs_p=parsed["hgvs_p"],
                 clinical_significance=parsed["clinical_significance"],
+                variation_type=parsed["variation_type"],
                 residue=residue,
                 mapped=is_mapped
             )
 
-            sig_str = variant.clinical_significance or "Unclassified"
+            sig_label = variant.clinical_significance or "Unclassified"
+            sig_counts[sig_label] = sig_counts.get(sig_label, 0) + 1
+
             hgvs_str = variant.hgvs_p or "no protein HGVS"
             map_str = f"Residue {variant.residue}" if is_mapped else "unmapped"
-            print(f"  UID {uid}: {sig_str} | {hgvs_str} ({map_str})")
+            print(f"  UID {uid}: {sig_label} | {hgvs_str} ({map_str})")
 
             variants.append(variant)
+
+        # 4. Summary by clinical significance
+        print("\n  Clinical significance summary:")
+        for sig, count in sorted(sig_counts.items(), key=lambda x: -x[1]):
+            print(f"    {sig}: {count}")
 
         return variants

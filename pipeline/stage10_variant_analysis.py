@@ -59,6 +59,7 @@ class VariantAnalysisStage:
                 "hgvs_p": variant.hgvs_p,
                 "residue": residue,
                 "clinical_significance": variant.clinical_significance,
+                "variation_type": getattr(variant, "variation_type", None),
                 "consequence": consequence,
                 "mapped": self.analyzer.map_to_sequence(
                     residue,

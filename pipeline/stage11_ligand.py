@@ -14,13 +14,15 @@ class LigandScreeningStage:
         self,
         protein,
         pockets,
-        interactions
+        interactions,
+        gene=None
     ):
 
         print("\nLigand discovery started...")
 
         ligands = self.discovery.discover(
-            interactions=interactions
+            interactions=interactions,
+            primary_gene=gene
         )
 
         print(f"Discovered {len(ligands)} ligands")

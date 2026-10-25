@@ -21,10 +21,41 @@ Given a disease name or gene symbol, the pipeline produces a structured computat
 
 **v3 fixes:**
 
-- **Option B — Curated HGNC Symbol Map:** `DiseaseResolverEngine` now checks a built-in `KNOWN_DISEASE_MAP` before any network call. This covers common rare disease names and acronyms (`dmd`, `duchenne`, `rett syndrome`, `sma`, `huntington`, `cystic fibrosis`, etc.) and maps them directly to verified HGNC symbols, bypassing the NCBI ambiguity entirely.
+- **Option B — Curated HGNC Symbol Map (100+ Rare Diseases):** `DiseaseResolverEngine` now checks an extensive `KNOWN_DISEASE_MAP` before hitting external APIs. This covers over 100 rare diseases across 12 distinct therapeutic areas:
+  - *Muscular Dystrophies:* DMD, BMD, LGMD (CAPN3), FSHD (DUX4)
+  - *Neurological:* Rett (MECP2), SMA (SMN1), Huntington (HTT), Fragile X (FMR1), ALS (SOD1), Friedreich Ataxia (FXN), CMT (PMP22), SCA1 (ATXN1), Myotonic Dystrophy (DMPK), Parkinson (SNCA), Alzheimer (APP), Angelman (UBE3A), Prader-Willi (SNRPN), Dravet (SCN1A)
+  - *Lysosomal Storage Disorders:* Gaucher (GBA1), Fabry (GLA), Tay-Sachs (HEXA), Pompe (GAA), Niemann-Pick (SMPD1/NPC1), Krabbe (GALC), MLD (ARSA), MPS I/Hurler (IDUA), MPS II/Hunter (IDS)
+  - *Hematology:* Sickle Cell Disease (HBB), Thalassemia alpha/beta (HBA1/HBB), Hemophilia A/B (F8/F9), von Willebrand (VWF), Fanconi Anemia (FANCA)
+  - *Connective Tissue & Bone:* Marfan (FBN1), Ehlers-Danlos (COL5A1), Osteogenesis Imperfecta (COL1A1), Stickler (COL2A1), Achondroplasia (FGFR3)
+  - *Immunology:* SCID (IL2RG), XLA (BTK), Wiskott-Aldrich (WAS), DiGeorge (TBX1)
+  - *Metabolic:* PKU (PAH), Wilson (ATP7B), MSUD (BCKDHA), Galactosemia (GALT), Homocystinuria (CBS), MCADD (ACADM), GSD1 (G6PC1), Biotinidase (BTD), Propionic Acidemia (PCCA)
+  - *Cardiology:* LQTS (KCNQ1), HCM (MYH7), DCM (LMNA), Brugada (SCN5A), ARVC (PKP2), CPVT (RYR2)
+  - *Pulmonology:* Cystic Fibrosis (CFTR), Alpha-1 Antitrypsin (SERPINA1), Primary Ciliary Dyskinesia (DNAI1)
+  - *Nephrology:* ADPKD (PKD1), Alport (COL4A5)
+  - *Ophthalmology:* Retinitis Pigmentosa (RHO), Leber Congenital Amaurosis (RPE65), Stargardt (ABCA4)
+  - *Cancer & Syndromes:* NF1, NF2, Li-Fraumeni (TP53), FAP (APC), VHL, Tuberous Sclerosis (TSC1), Retinoblastoma (RB1), Williams (ELN), Noonan (PTPN11), Alagille (JAG1), Kabuki (KMT2D), CdLS (NIPBL), Progeria (LMNA)
 - **Option A — Direct Gene Symbol Bypass:** If a `gene_symbol` is passed on the `Disease` model or via the CLI (`--gene DMD`), Stage 00 skips all resolver logic and uses the explicit symbol immediately.
 - **Cache Purge & Stale Cache Protection:** The poisoned `{"dmd": "ERBB2"}` entry is detected and removed at runtime. The cache is pre-seeded with correct entries for all curated diseases.
 - **NCBI Query Priority Fix:** `NCBIGeneClient` now queries `[Gene Name]` first for gene-symbol-shaped inputs (2–10 uppercase alphanumeric chars), then `[Disease/Phenotype]`, then `[Gene/Protein Name]` — eliminating the `[All Fields]` relevance collisions that caused the mismatch.
+
+## Advanced Scientific Improvements
+
+### 1. ClinVar Pathogenic Variant Prioritization
+- **Two-tier query system:** `ClinVarClient` queries for explicit `("pathogenic"[clinical_significance] OR "likely pathogenic"[clinical_significance])` records first, followed by broader gene variants (up to 500 records searched).
+- **Expanded capacity:** Variant retrieval capacity expanded to 50 deduplicated, pathogenic-prioritized alleles per target gene.
+- **Structural variant identification:** Detects and parses `variation_type` (deletions, duplications, frameshifts, single nucleotide variants).
+
+### 2. Primary Target Screening in ChEMBL
+- `LigandDiscovery` now queries the **primary gene target directly in ChEMBL** first to harvest verified active compounds for the target protein before querying secondary STRING partners.
+- Global screening cap expanded from 30 to 50 candidate molecules across sequential sets.
+
+### 3. Mutation-Guided Pocket Selection & Safety Gates
+- **Druggability gating:** Enforces a `MIN_DRUGGABILITY = 0.2` threshold to filter out geometrically artifactual or non-druggable pockets.
+- **Residue-overlap mapping:** Pocket-lining residues are parsed from fpocket atom PDB files and mapped against known ClinVar pathogenic variant residues. Pockets that directly overlap or contact disease-causing mutations are **automatically prioritized** for molecular docking.
+- **Centroid validation:** Prevents unconstrained whole-protein docking by asserting valid bounding boxes before Vina execution.
+
+### 4. PDBFixer Caching
+- Stage 06 caches `_fixed.pdb` structures, eliminating redundant 2-minute fixing cycles on repeat pipeline runs.
 
 ## CLI Enhancements
 
